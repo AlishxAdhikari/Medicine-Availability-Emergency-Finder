@@ -1,0 +1,97 @@
+# OS / editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Logs
+*.log
+logs/
+
+# Environment / secrets
+.env
+.env.*
+*.env
+*.local
+
+# Python / Django
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+venv/
+.venv/
+ENV/
+env/
+backend/.venv/
+backend/venv/
+backend/.env/
+backend/db.sqlite3
+backend/media/
+backend/staticfiles/
+backend/*.sqlite3
+
+# Django / GeoDjango build artifacts
+backend/**/migrations/__pycache__/
+backend/**/migrations/*.pyc
+backend/**/migrations/*.pyo
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+.pub-cache/
+build/
+coverage/
+**/doc/api/
+app.*.symbols
+app.*.map.json
+
+# Flutter platform build outputs
+medalert_nepal/android/.gradle/
+medalert_nepal/android/app/debug/
+medalert_nepal/android/app/profile/
+medalert_nepal/android/app/release/
+medalert_nepal/android/local.properties
+medalert_nepal/ios/Pods/
+medalert_nepal/ios/.symlinks/
+medalert_nepal/ios/Flutter/Flutter.framework/
+medalert_nepal/ios/Flutter/Flutter.podspec
+medalert_nepal/ios/Flutter/Generated.xcconfig
+medalert_nepal/ios/Flutter/ephemeral/
+medalert_nepal/ios/Runner.xcworkspace/xcuserdata/
+medalert_nepal/ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Android / Gradle
+.gradle/
+**/build/
+**/captures/
+local.properties
+*.keystore
+*.jks
+*.hprof
+
+# Node / JS (safe in mixed repos)
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc generated artifacts
+*.tmp
+*.swp
