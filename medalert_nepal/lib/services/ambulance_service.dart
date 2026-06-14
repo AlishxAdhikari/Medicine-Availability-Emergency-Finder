@@ -4,6 +4,8 @@ import '../models/ambulance.dart';
 class AmbulanceService {
   final _client = ApiClient();
 
+
+
   Future<List<AmbulanceProvider>> getAmbulanceProviders({
     String? search,
     String? serviceType,

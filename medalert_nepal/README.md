@@ -1,17 +1,13 @@
-# medalert_nepal
+# MedAlert Nepal
 
-A new Flutter project.
+Flutter frontend for the Medicine Availability Emergency Finder project.
 
-## Getting Started
+## Overview
 
-This project is a starting point for a Flutter application.
+The app starts in `lib/main.dart` and opens a compact dashboard shell with tabs for home, medicines, blood banks, ambulances, and profile data.
 
-A few resources to get you started if this is your first Flutter project:
+## Development
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Run the app with `flutter run` from the `medalert_nepal` directory.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Run the smoke test with `flutter test test/widget_test.dart`.
