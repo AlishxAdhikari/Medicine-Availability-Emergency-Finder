@@ -1,6 +1,5 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
-from django.contrib.gis.geos import Point
 from core.models import (
     Pharmacy,
     MedicineCategory,
@@ -104,7 +103,8 @@ class Command(BaseCommand):
                     'address': addr,
                     'district': dist,
                     'phone': phone,
-                    'location': Point(lon, lat, srid=4326),
+                    'longitude': lon,
+                    'latitude': lat,
                     'is_24h': is_24h,
                     'verification_status': status,
                     'is_active': True,
@@ -162,7 +162,8 @@ class Command(BaseCommand):
                     'address': addr,
                     'district': dist,
                     'phone': phone,
-                    'location': Point(lon, lat, srid=4326),
+                    'longitude': lon,
+                    'latitude': lat,
                     'is_active': active,
                     'is_24h': is_24h,
                 }
@@ -216,7 +217,8 @@ class Command(BaseCommand):
                     'contact_number': phone,
                     'address': addr,
                     'district': dist,
-                    'location': Point(lon, lat, srid=4326),
+                    'longitude': lon,
+                    'latitude': lat,
                     'is_active': active,
                     'is_24h': is_24h,
                     'has_icu': has_icu,

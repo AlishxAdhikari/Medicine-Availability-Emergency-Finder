@@ -37,8 +37,10 @@ class BloodBankService {
       }
 
       return dataList.map((json) => BloodBank.fromJson(json as Map<String, dynamic>)).toList();
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load blood banks: $e');
+      throw ApiException('Failed to load blood banks: $e');
     }
   }
 }

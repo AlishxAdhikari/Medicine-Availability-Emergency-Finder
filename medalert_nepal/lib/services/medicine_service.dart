@@ -8,6 +8,8 @@ class MedicineService {
     String? search,
     int? categoryId,
     bool? isEssential,
+    double? lat,
+    double? lon,
   }) async {
     try {
       final Map<String, dynamic> queryParams = {};
@@ -19,6 +21,10 @@ class MedicineService {
       }
       if (isEssential != null) {
         queryParams['is_essential'] = isEssential;
+      }
+      if (lat != null && lon != null) {
+        queryParams['lat'] = lat;
+        queryParams['lon'] = lon;
       }
 
       final response = await _client.dio.get('/medicines/', queryParameters: queryParams);
@@ -33,8 +39,10 @@ class MedicineService {
       }
 
       return dataList.map((json) => Medicine.fromJson(json as Map<String, dynamic>)).toList();
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load medicines catalog: $e');
+      throw ApiException('Failed to load medicines catalog: $e');
     }
   }
 
@@ -50,8 +58,10 @@ class MedicineService {
         dataList = [];
       }
       return dataList.map((json) => MedicineCategory.fromJson(json as Map<String, dynamic>)).toList();
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load categories: $e');
+      throw ApiException('Failed to load categories: $e');
     }
   }
 
@@ -71,8 +81,10 @@ class MedicineService {
       }
 
       return dataList.map((json) => PharmacyMedicineStock.fromJson(json as Map<String, dynamic>)).toList();
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load medicine availability: $e');
+      throw ApiException('Failed to load medicine availability: $e');
     }
   }
 }

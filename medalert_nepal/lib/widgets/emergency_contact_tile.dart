@@ -24,26 +24,6 @@ class EmergencyContactTile extends StatelessWidget {
     }
   }
 
-  IconData _getIconData(String iconName) {
-    switch (iconName.toLowerCase().trim()) {
-      case 'local_hospital':
-      case 'hospital':
-        return Icons.local_hospital_outlined;
-      case 'local_police':
-      case 'police':
-        return Icons.local_police_outlined;
-      case 'fire_truck':
-      case 'fire':
-        return Icons.fire_truck_outlined;
-      case 'bloodtype':
-      case 'blood':
-        return Icons.bloodtype_outlined;
-      case 'phone':
-      default:
-        return Icons.phone_outlined;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -64,7 +44,7 @@ class EmergencyContactTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              _getIconData(contact.icon),
+              contact.icon.iconData,
               color: theme.colorScheme.onPrimaryContainer,
               size: 24,
             ),

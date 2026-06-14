@@ -23,8 +23,10 @@ class AuthService {
         return true;
       }
       return false;
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Login failed: $e');
+      throw ApiException('Login failed: $e');
     }
   }
 
@@ -37,8 +39,10 @@ class AuthService {
         'password_confirm': password, // matched field
       });
       return response.statusCode == 201;
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Registration failed: $e');
+      throw ApiException('Registration failed: $e');
     }
   }
 
@@ -57,8 +61,10 @@ class AuthService {
     try {
       final response = await _client.dio.get('/auth/profile/me/');
       return MedicalProfile.fromJson(response.data as Map<String, dynamic>);
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load profile: $e');
+      throw ApiException('Failed to load profile: $e');
     }
   }
 
@@ -66,8 +72,10 @@ class AuthService {
     try {
       final response = await _client.dio.put('/auth/profile/me/', data: profile.toJson());
       return MedicalProfile.fromJson(response.data as Map<String, dynamic>);
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to update medical ID profile: $e');
+      throw ApiException('Failed to update medical ID profile: $e');
     }
   }
 }

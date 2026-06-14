@@ -43,8 +43,10 @@ class AmbulanceService {
       }
 
       return dataList.map((json) => AmbulanceProvider.fromJson(json as Map<String, dynamic>)).toList();
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load ambulance providers: $e');
+      throw ApiException('Failed to load ambulance providers: $e');
     }
   }
 }

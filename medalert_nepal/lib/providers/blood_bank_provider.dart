@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/blood_bank_service.dart';
 import '../models/blood_bank.dart';
+import 'location_provider.dart';
 
 final bloodBankServiceProvider = Provider<BloodBankService>((ref) => BloodBankService());
 
@@ -13,10 +14,13 @@ final bloodBanksProvider = FutureProvider<List<BloodBank>>((ref) async {
   final query = ref.watch(bloodBankSearchQueryProvider);
   final district = ref.watch(bloodBankDistrictProvider);
   final bloodGroup = ref.watch(bloodBankGroupProvider);
+  final locationState = ref.watch(locationProvider);
 
   return service.getBloodBanks(
     search: query,
     district: district == 'All' ? null : district,
     bloodGroup: bloodGroup == 'All' ? null : bloodGroup,
+    lat: locationState.position?.latitude,
+    lon: locationState.position?.longitude,
   );
 });

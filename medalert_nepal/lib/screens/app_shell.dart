@@ -1,20 +1,45 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/auth_provider.dart';
+import '../providers/location_provider.dart';
 import 'ambulance_screen.dart';
 import 'blood_bank_screen.dart';
 import 'home_screen.dart';
+import 'login_screen.dart';
 import 'medicine_screen.dart';
 import 'profile_screen.dart';
 
-class AppShell extends StatefulWidget {
+final selectedTabProvider = StateProvider<int>((ref) => 0);
+
+class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    
+    // Initialize location provider when app starts
+    ref.watch(locationProvider);
+
+    if (authState.isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (!authState.isLoggedIn) {
+      return const LoginScreen();
+    }
+
+    return const _MainAppShell();
+  }
 }
 
-class _AppShellState extends State<AppShell> {
-  int _selectedIndex = 0;
+class _MainAppShell extends ConsumerWidget {
+  const _MainAppShell();
 
   static const _screens = [
     HomeScreen(),
@@ -25,15 +50,17 @@ class _AppShellState extends State<AppShell> {
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selectedIndex = ref.watch(selectedTabProvider);
+
     return Scaffold(
       body: IndexedStack(
-        index: _selectedIndex,
+        index: selectedIndex,
         children: _screens,
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        selectedIndex: selectedIndex,
+        onDestinationSelected: (index) => ref.read(selectedTabProvider.notifier).state = index,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),

@@ -8,6 +8,7 @@ class MedicalProfile {
   final String emergencyContactName;
   final String emergencyContactPhone;
   final String emergencyContactRelation;
+  final String? shareToken;
 
   MedicalProfile({
     required this.bloodGroup,
@@ -19,6 +20,7 @@ class MedicalProfile {
     required this.emergencyContactName,
     required this.emergencyContactPhone,
     required this.emergencyContactRelation,
+    this.shareToken,
   });
 
   factory MedicalProfile.fromJson(Map<String, dynamic> json) {
@@ -32,6 +34,7 @@ class MedicalProfile {
       emergencyContactName: json['emergency_contact_name'] as String? ?? '',
       emergencyContactPhone: json['emergency_contact_phone'] as String? ?? '',
       emergencyContactRelation: json['emergency_contact_relation'] as String? ?? '',
+      shareToken: json['share_token'] as String?,
     );
   }
 
@@ -62,4 +65,14 @@ class MedicalProfile {
       emergencyContactRelation: '',
     );
   }
+
+  bool get isEmpty => bloodGroup == 'O+' &&
+      heightCm == null &&
+      weightKg == null &&
+      allergies.isEmpty &&
+      chronicConditions.isEmpty &&
+      currentMedications.isEmpty &&
+      emergencyContactName.isEmpty &&
+      emergencyContactPhone.isEmpty &&
+      emergencyContactRelation.isEmpty;
 }

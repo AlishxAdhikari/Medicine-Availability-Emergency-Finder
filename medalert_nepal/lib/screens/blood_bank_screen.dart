@@ -1,50 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/blood_bank.dart';
+import '../providers/blood_bank_provider.dart';
+import '../services/api_client.dart';
 import '../widgets/blood_bank_card.dart';
 import '../widgets/filter_chip_bar.dart';
 import '../widgets/search_bar_widget.dart';
 
-class BloodBankScreen extends StatefulWidget {
+class BloodBankScreen extends ConsumerStatefulWidget {
   const BloodBankScreen({super.key});
 
   @override
-  State<BloodBankScreen> createState() => _BloodBankScreenState();
+  ConsumerState<BloodBankScreen> createState() => _BloodBankScreenState();
 }
 
-class _BloodBankScreenState extends State<BloodBankScreen> {
+class _BloodBankScreenState extends ConsumerState<BloodBankScreen> {
   final _searchController = TextEditingController();
   String _selectedGroup = 'All';
 
-  final _bloodBanks = [
-    BloodBank(
-      id: 1,
-      name: 'Nepal Red Cross Blood Bank',
-      address: 'Kalimati, Kathmandu',
-      district: 'Kathmandu',
-      phone: '+977-1-4270650',
-      isActive: true,
-      is24h: true,
-      bloodStocks: [
-        BloodStock(id: 1, bloodGroup: 'A+', stockLevel: 'adequate', unitsAvailable: 18, notes: ''),
-        BloodStock(id: 2, bloodGroup: 'O+', stockLevel: 'low', unitsAvailable: 4, notes: ''),
-        BloodStock(id: 3, bloodGroup: 'AB-', stockLevel: 'critical', unitsAvailable: 1, notes: ''),
-      ],
-    ),
-    BloodBank(
-      id: 2,
-      name: 'Maharajgunj Blood Center',
-      address: 'Maharajgunj, Kathmandu',
-      district: 'Kathmandu',
-      phone: '+977-1-4412303',
-      isActive: true,
-      is24h: false,
-      bloodStocks: [
-        BloodStock(id: 4, bloodGroup: 'B+', stockLevel: 'adequate', unitsAvailable: 12, notes: ''),
-        BloodStock(id: 5, bloodGroup: 'O-', stockLevel: 'low', unitsAvailable: 3, notes: ''),
-      ],
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      ref.read(bloodBankSearchQueryProvider.notifier).state = _searchController.text;
+    });
+  }
 
   @override
   void dispose() {
@@ -53,8 +34,14 @@ class _BloodBankScreenState extends State<BloodBankScreen> {
   }
 
   List<BloodBank> get _filteredBanks {
+    final bloodBanksAsync = ref.watch(bloodBanksProvider);
     final query = _searchController.text.trim().toLowerCase();
-    return _bloodBanks.where((bank) {
+    
+    if (bloodBanksAsync.isLoading || !bloodBanksAsync.hasValue) {
+      return [];
+    }
+
+    return bloodBanksAsync.value!.where((bank) {
       final matchesQuery = query.isEmpty ||
           bank.name.toLowerCase().contains(query) ||
           bank.address.toLowerCase().contains(query);
@@ -66,6 +53,8 @@ class _BloodBankScreenState extends State<BloodBankScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bloodBanksAsync = ref.watch(bloodBanksProvider);
+    
     return Scaffold(
       appBar: AppBar(title: const Text('Blood Banks')),
       body: ListView(
@@ -84,12 +73,26 @@ class _BloodBankScreenState extends State<BloodBankScreen> {
             onSelected: (item) => setState(() => _selectedGroup = item),
           ),
           const SizedBox(height: 12),
-          ..._filteredBanks.map((bank) => BloodBankCard(bloodBank: bank)),
-          if (_filteredBanks.isEmpty)
+          if (bloodBanksAsync.isLoading)
+            const Center(child: CircularProgressIndicator())
+          else if (bloodBanksAsync.hasError)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text(
+                  bloodBanksAsync.error is ApiException 
+                    ? (bloodBanksAsync.error as ApiException).message 
+                    : 'Error loading blood banks',
+                ),
+              ),
+            )
+          else if (_filteredBanks.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 32),
               child: Center(child: Text('No blood banks match this filter.')),
-            ),
+            )
+          else
+            ..._filteredBanks.map((bank) => BloodBankCard(bloodBank: bank)),
         ],
       ),
     );

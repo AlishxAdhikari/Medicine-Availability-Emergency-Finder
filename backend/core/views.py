@@ -77,6 +77,26 @@ class MedicalProfileViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(profile)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'], permission_classes=[permissions.AllowAny])
+    def public(self, request):
+        """Public read-only endpoint for emergency responders to access medical ID via share_token"""
+        share_token = request.query_params.get('token')
+        if not share_token:
+            return Response(
+                {'error': 'share_token query parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            profile = MedicalProfile.objects.get(share_token=share_token)
+            serializer = self.get_serializer(profile)
+            return Response(serializer.data)
+        except MedicalProfile.DoesNotExist:
+            return Response(
+                {'error': 'Invalid share_token'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
 
 # ── Shared Helper Mixin for Python Distance Sorting ───────────────────────────
 
@@ -154,7 +174,7 @@ class MedicineViewSet(viewsets.ModelViewSet):
 
 
 class PharmacyMedicineStockViewSet(viewsets.ModelViewSet):
-    queryset = PharmacyMedicineStock.objects.all().select_related('pharmacy', 'medicine')
+    queryset = PharmacyMedicineStock.objects.all().select_related('pharmacy', 'medicine', 'pharmacy__managed_by')
     serializer_class = PharmacyMedicineStockSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filterset_fields = ['pharmacy', 'medicine', 'availability']

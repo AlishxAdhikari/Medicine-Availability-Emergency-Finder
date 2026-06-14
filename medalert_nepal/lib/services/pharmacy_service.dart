@@ -35,8 +35,10 @@ class PharmacyService {
       }
 
       return dataList.map((json) => Pharmacy.fromJson(json as Map<String, dynamic>)).toList();
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load pharmacies: $e');
+      throw ApiException('Failed to load pharmacies: $e');
     }
   }
 
@@ -44,8 +46,10 @@ class PharmacyService {
     try {
       final response = await _client.dio.get('/pharmacies/$id/');
       return Pharmacy.fromJson(response.data as Map<String, dynamic>);
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load pharmacy details: $e');
+      throw ApiException('Failed to load pharmacy details: $e');
     }
   }
 
@@ -65,8 +69,10 @@ class PharmacyService {
       }
 
       return dataList.map((json) => PharmacyMedicineStock.fromJson(json as Map<String, dynamic>)).toList();
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to load pharmacy stock: $e');
+      throw ApiException('Failed to load pharmacy stock: $e');
     }
   }
 }

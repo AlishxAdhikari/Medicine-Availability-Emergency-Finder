@@ -18,10 +18,10 @@ class EmergencyContactsNotifier extends StateNotifier<List<EmergencyContact>> {
     if (stored == null || (stored as List).isEmpty) {
       // Prepopulate defaults
       final defaults = [
-        EmergencyContact(id: _uuid.v4(), label: '24/7 Ambulance Service', phoneNumber: '102', icon: 'local_hospital'),
-        EmergencyContact(id: _uuid.v4(), label: 'Nepal Police ER', phoneNumber: '100', icon: 'local_police'),
-        EmergencyContact(id: _uuid.v4(), label: 'Fire Brigade Dispatch', phoneNumber: '101', icon: 'fire_truck'),
-        EmergencyContact(id: _uuid.v4(), label: 'Nepal Red Cross Blood Bank', phoneNumber: '+977-1-4270650', icon: 'bloodtype'),
+        EmergencyContact(id: _uuid.v4(), label: '24/7 Ambulance Service', phoneNumber: '102', icon: EmergencyContactIcon.localHospital),
+        EmergencyContact(id: _uuid.v4(), label: 'Nepal Police ER', phoneNumber: '100', icon: EmergencyContactIcon.localPolice),
+        EmergencyContact(id: _uuid.v4(), label: 'Fire Brigade Dispatch', phoneNumber: '101', icon: EmergencyContactIcon.fireTruck),
+        EmergencyContact(id: _uuid.v4(), label: 'Nepal Red Cross Blood Bank', phoneNumber: '+977-1-4270650', icon: EmergencyContactIcon.bloodtype),
       ];
       await _saveToHive(defaults);
       state = defaults;
@@ -39,7 +39,7 @@ class EmergencyContactsNotifier extends StateNotifier<List<EmergencyContact>> {
     await _box.put('contacts', list);
   }
 
-  Future<void> addContact(String label, String phoneNumber, String icon) async {
+  Future<void> addContact(String label, String phoneNumber, EmergencyContactIcon icon) async {
     final newContact = EmergencyContact(
       id: _uuid.v4(),
       label: label,
@@ -51,7 +51,7 @@ class EmergencyContactsNotifier extends StateNotifier<List<EmergencyContact>> {
     await _saveToHive(updated);
   }
 
-  Future<void> editContact(String id, String label, String phoneNumber, String icon) async {
+  Future<void> editContact(String id, String label, String phoneNumber, EmergencyContactIcon icon) async {
     final updated = state.map((c) {
       if (c.id == id) {
         return EmergencyContact(id: id, label: label, phoneNumber: phoneNumber, icon: icon);

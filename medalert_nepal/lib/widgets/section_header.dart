@@ -6,11 +6,13 @@ class SectionHeader extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.icon,
+    this.action,
   });
 
   final String title;
   final String subtitle;
   final IconData icon;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +46,8 @@ class SectionHeader extends StatelessWidget {
             ],
           ),
         ),
+        // Added the bang operator (!) here to resolve the type issue
+        if (action != null) action!,
       ],
     );
   }

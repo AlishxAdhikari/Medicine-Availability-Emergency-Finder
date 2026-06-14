@@ -1,70 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/medicine.dart';
+import '../providers/medicine_provider.dart';
+import '../services/api_client.dart';
 import '../widgets/filter_chip_bar.dart';
 import '../widgets/medicine_card.dart';
 import '../widgets/search_bar_widget.dart';
+import 'pharmacy_stock_screen.dart';
 
-class MedicineScreen extends StatefulWidget {
+class MedicineScreen extends ConsumerStatefulWidget {
   const MedicineScreen({super.key});
 
   @override
-  State<MedicineScreen> createState() => _MedicineScreenState();
+  ConsumerState<MedicineScreen> createState() => _MedicineScreenState();
 }
 
-class _MedicineScreenState extends State<MedicineScreen> {
+class _MedicineScreenState extends ConsumerState<MedicineScreen> {
   final _searchController = TextEditingController();
   String _selectedCategory = 'All';
 
-  final _medicines = [
-    Medicine(
-      id: 1,
-      name: 'Paracetamol',
-      genericName: 'Acetaminophen',
-      brandName: 'Niko',
-      dosageForm: 'Tablet',
-      strength: '500mg',
-      description: 'Fever and pain relief.',
-      isEssential: true,
-      requiresPrescription: false,
-    ),
-    Medicine(
-      id: 2,
-      name: 'Amoxicillin',
-      genericName: 'Amoxicillin',
-      brandName: 'Mox',
-      category: 2,
-      dosageForm: 'Capsule',
-      strength: '250mg',
-      description: 'Common antibiotic.',
-      isEssential: true,
-      requiresPrescription: true,
-    ),
-    Medicine(
-      id: 3,
-      name: 'Salbutamol',
-      genericName: 'Albuterol',
-      brandName: 'Asthalin',
-      category: 3,
-      dosageForm: 'Inhaler',
-      strength: '100mcg',
-      description: 'Asthma rescue inhaler.',
-      isEssential: true,
-      requiresPrescription: true,
-    ),
-    Medicine(
-      id: 4,
-      name: 'ORS Sachet',
-      genericName: 'Oral rehydration salts',
-      brandName: 'Jeevan Jal',
-      category: 4,
-      dosageForm: 'Powder',
-      strength: '20.5g',
-      description: 'Hydration support.',
-      isEssential: true,
-      requiresPrescription: false,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      ref.read(medicineSearchQueryProvider.notifier).state = _searchController.text;
+    });
+  }
 
   @override
   void dispose() {
@@ -73,10 +35,16 @@ class _MedicineScreenState extends State<MedicineScreen> {
   }
 
   List<Medicine> get _filteredMedicines {
+    final medicinesAsync = ref.watch(medicinesProvider);
     final query = _searchController.text.trim().toLowerCase();
-    return _medicines.where((medicine) {
-      final category = medicine.dosageForm;
-      final matchesCategory = _selectedCategory == 'All' || category == _selectedCategory;
+    
+    if (medicinesAsync.isLoading || !medicinesAsync.hasValue) {
+      return [];
+    }
+
+    return medicinesAsync.value!.where((medicine) {
+      final categoryDetail = medicine.categoryDetail?.name ?? '';
+      final matchesCategory = _selectedCategory == 'All' || categoryDetail == _selectedCategory;
       final matchesQuery = query.isEmpty ||
           medicine.name.toLowerCase().contains(query) ||
           medicine.genericName.toLowerCase().contains(query);
@@ -86,6 +54,9 @@ class _MedicineScreenState extends State<MedicineScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final medicinesAsync = ref.watch(medicinesProvider);
+    final categoriesAsync = ref.watch(categoriesProvider);
+    
     return Scaffold(
       appBar: AppBar(title: const Text('Medicines')),
       body: ListView(
@@ -98,20 +69,42 @@ class _MedicineScreenState extends State<MedicineScreen> {
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 8),
-          FilterChipBar<String>(
-            items: const ['All', 'Tablet', 'Capsule', 'Inhaler', 'Powder'],
-            selectedItem: _selectedCategory,
-            labelBuilder: (item) => item,
-            onSelected: (item) => setState(() => _selectedCategory = item),
+          categoriesAsync.when(
+            loading: () => const SizedBox(height: 40),
+            error: (_, __) => const SizedBox.shrink(),
+            data: (categories) {
+              final categoryNames = ['All', ...categories.map((c) => c.name)];
+              return FilterChipBar<String>(
+                items: categoryNames,
+                selectedItem: _selectedCategory,
+                labelBuilder: (item) => item,
+                onSelected: (item) => setState(() => _selectedCategory = item),
+              );
+            },
           ),
           const SizedBox(height: 12),
-          if (_filteredMedicines.isEmpty)
+          if (medicinesAsync.isLoading)
+            const Center(child: CircularProgressIndicator())
+          else if (medicinesAsync.hasError)
+            _EmptyMessage(
+              message: medicinesAsync.error is ApiException 
+                ? (medicinesAsync.error as ApiException).message 
+                : 'Error loading medicines',
+            )
+          else if (_filteredMedicines.isEmpty)
             const _EmptyMessage(message: 'No medicines match this search.')
           else
             ..._filteredMedicines.map(
               (medicine) => MedicineCard(
                 medicine: medicine,
                 availability: medicine.id == 3 ? 'out_of_stock' : medicine.id == 2 ? 'low_stock' : 'available',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PharmacyStockScreen(medicine: medicine),
+                    ),
+                  );
+                },
               ),
             ),
         ],

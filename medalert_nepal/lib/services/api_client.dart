@@ -4,6 +4,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api_config.dart';
 
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+
+  ApiException(this.message, [this.statusCode]);
+
+  @override
+  String toString() => message;
+}
+
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
   factory ApiClient() => _instance;
@@ -66,10 +76,78 @@ class ApiClient {
               }
             }
           }
-          return handler.next(e);
+
+          // Convert DioException to user-friendly ApiException
+          final apiException = _convertDioException(e);
+          return handler.reject(DioException(
+            requestOptions: e.requestOptions,
+            error: apiException,
+            response: e.response,
+            type: e.type,
+          ));
         },
       ),
     );
+  }
+
+  ApiException _convertDioException(DioException e) {
+    String message;
+    int? statusCode = e.response?.statusCode;
+
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        message = 'Connection timeout. Please check your internet connection.';
+        break;
+      case DioExceptionType.badResponse:
+        message = _handleErrorResponse(e.response?.statusCode, e.response?.data);
+        break;
+      case DioExceptionType.cancel:
+        message = 'Request was cancelled.';
+        break;
+      case DioExceptionType.connectionError:
+        message = 'No internet connection. Please check your network settings.';
+        break;
+      case DioExceptionType.badCertificate:
+        message = 'SSL certificate error. Please try again later.';
+        break;
+      default:
+        message = 'An unexpected error occurred. Please try again.';
+    }
+
+    return ApiException(message, statusCode);
+  }
+
+  String _handleErrorResponse(int? statusCode, dynamic responseData) {
+    if (responseData is Map && responseData.containsKey('detail')) {
+      return responseData['detail'] as String;
+    }
+    if (responseData is Map && responseData.containsKey('error')) {
+      return responseData['error'] as String;
+    }
+    if (responseData is Map && responseData.containsKey('non_field_errors')) {
+      final errors = responseData['non_field_errors'] as List;
+      return errors.join(', ');
+    }
+    if (responseData is Map && responseData.containsKey('message')) {
+      return responseData['message'] as String;
+    }
+
+    switch (statusCode) {
+      case 400:
+        return 'Invalid request. Please check your input.';
+      case 401:
+        return 'Authentication failed. Please login again.';
+      case 403:
+        return 'You don\'t have permission to access this resource.';
+      case 404:
+        return 'The requested resource was not found.';
+      case 500:
+        return 'Server error. Please try again later.';
+      default:
+        return 'Request failed with status $statusCode';
+    }
   }
 
   String _determineBaseUrl() {

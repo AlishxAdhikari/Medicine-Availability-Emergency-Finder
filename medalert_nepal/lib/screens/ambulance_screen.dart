@@ -1,64 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/ambulance.dart';
+import '../providers/ambulance_provider.dart';
+import '../services/api_client.dart';
 import '../widgets/ambulance_card.dart';
 import '../widgets/filter_chip_bar.dart';
 import '../widgets/search_bar_widget.dart';
 
-class AmbulanceScreen extends StatefulWidget {
+class AmbulanceScreen extends ConsumerStatefulWidget {
   const AmbulanceScreen({super.key});
 
   @override
-  State<AmbulanceScreen> createState() => _AmbulanceScreenState();
+  ConsumerState<AmbulanceScreen> createState() => _AmbulanceScreenState();
 }
 
-class _AmbulanceScreenState extends State<AmbulanceScreen> {
+class _AmbulanceScreenState extends ConsumerState<AmbulanceScreen> {
   final _searchController = TextEditingController();
   String _selectedType = 'All';
   bool _icuOnly = false;
   bool _oxygenOnly = false;
 
-  final _providers = [
-    AmbulanceProvider(
-      id: 1,
-      hospitalName: 'Bir Hospital',
-      serviceType: 'government',
-      contactNumber: '102',
-      address: 'Mahaboudha, Kathmandu',
-      district: 'Kathmandu',
-      isActive: true,
-      is24h: true,
-      hasIcu: true,
-      hasOxygen: true,
-      notes: 'Central emergency response desk.',
-    ),
-    AmbulanceProvider(
-      id: 2,
-      hospitalName: 'Patan Hospital',
-      serviceType: 'government',
-      contactNumber: '+977-1-5522278',
-      address: 'Lagankhel, Lalitpur',
-      district: 'Lalitpur',
-      isActive: true,
-      is24h: true,
-      hasIcu: false,
-      hasOxygen: true,
-      notes: 'Oxygen support available.',
-    ),
-    AmbulanceProvider(
-      id: 3,
-      hospitalName: 'Helping Hands Clinic',
-      serviceType: 'ngo',
-      contactNumber: '+977-1-5550199',
-      address: 'Chabahil, Kathmandu',
-      district: 'Kathmandu',
-      isActive: true,
-      is24h: false,
-      hasIcu: false,
-      hasOxygen: false,
-      notes: 'Daytime community service.',
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      ref.read(ambulanceSearchQueryProvider.notifier).state = _searchController.text;
+    });
+  }
 
   @override
   void dispose() {
@@ -67,8 +36,14 @@ class _AmbulanceScreenState extends State<AmbulanceScreen> {
   }
 
   List<AmbulanceProvider> get _filteredProviders {
+    final ambulancesAsync = ref.watch(ambulancesProvider);
     final query = _searchController.text.trim().toLowerCase();
-    return _providers.where((provider) {
+    
+    if (ambulancesAsync.isLoading || !ambulancesAsync.hasValue) {
+      return [];
+    }
+
+    return ambulancesAsync.value!.where((provider) {
       final matchesQuery = query.isEmpty ||
           provider.hospitalName.toLowerCase().contains(query) ||
           provider.address.toLowerCase().contains(query);
@@ -81,6 +56,8 @@ class _AmbulanceScreenState extends State<AmbulanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ambulancesAsync = ref.watch(ambulancesProvider);
+    
     return Scaffold(
       appBar: AppBar(title: const Text('Ambulances')),
       body: ListView(
@@ -116,12 +93,26 @@ class _AmbulanceScreenState extends State<AmbulanceScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          ..._filteredProviders.map((provider) => AmbulanceCard(ambulance: provider)),
-          if (_filteredProviders.isEmpty)
+          if (ambulancesAsync.isLoading)
+            const Center(child: CircularProgressIndicator())
+          else if (ambulancesAsync.hasError)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text(
+                  ambulancesAsync.error is ApiException 
+                    ? (ambulancesAsync.error as ApiException).message 
+                    : 'Error loading ambulances',
+                ),
+              ),
+            )
+          else if (_filteredProviders.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 32),
               child: Center(child: Text('No ambulance providers match this filter.')),
-            ),
+            )
+          else
+            ..._filteredProviders.map((provider) => AmbulanceCard(ambulance: provider)),
         ],
       ),
     );

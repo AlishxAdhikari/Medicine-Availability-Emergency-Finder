@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/medicine_service.dart';
 import '../models/medicine.dart';
+import 'location_provider.dart';
 
 final medicineServiceProvider = Provider<MedicineService>((ref) => MedicineService());
 
@@ -11,10 +12,13 @@ final medicinesProvider = FutureProvider<List<Medicine>>((ref) async {
   final service = ref.watch(medicineServiceProvider);
   final query = ref.watch(medicineSearchQueryProvider);
   final categoryId = ref.watch(medicineCategoryProvider);
+  final locationState = ref.watch(locationProvider);
 
   return service.getMedicines(
     search: query,
     categoryId: categoryId,
+    lat: locationState.position?.latitude,
+    lon: locationState.position?.longitude,
   );
 });
 

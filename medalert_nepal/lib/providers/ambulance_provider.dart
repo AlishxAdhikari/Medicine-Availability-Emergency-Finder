@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/ambulance_service.dart';
 import '../models/ambulance.dart';
+import 'location_provider.dart';
 
 final ambulanceServiceProvider = Provider<AmbulanceService>((ref) => AmbulanceService());
 
@@ -17,6 +18,7 @@ final ambulancesProvider = FutureProvider<List<AmbulanceProvider>>((ref) async {
   final district = ref.watch(ambulanceDistrictProvider);
   final hasIcu = ref.watch(ambulanceHasIcuProvider);
   final hasOxygen = ref.watch(ambulanceHasOxygenProvider);
+  final locationState = ref.watch(locationProvider);
 
   return service.getAmbulanceProviders(
     search: query,
@@ -24,5 +26,7 @@ final ambulancesProvider = FutureProvider<List<AmbulanceProvider>>((ref) async {
     district: district == 'All' ? null : district,
     hasIcu: hasIcu,
     hasOxygen: hasOxygen,
+    lat: locationState.position?.latitude,
+    lon: locationState.position?.longitude,
   );
 });
