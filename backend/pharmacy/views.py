@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-from django.shortcuts import render
-
-# Create your views here.
-=======
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -18,12 +13,7 @@ from .services import sort_by_proximity
 
 
 class MedicineViewSet(viewsets.ReadOnlyModelViewSet):
-    """GET /api/v1/medicines/?search=&category=&dosage_form=&is_essential=&requires_prescription=
-
-    Read-only for now: medicine catalogue writes go through Django Admin in
-    this phase, per the report's Phase 1/2 scope -- a manager-facing write
-    API can be added later without touching this endpoint's contract.
-    """
+    """GET /api/v1/medicines/?search=&category=&dosage_form=&is_essential=&requires_prescription="""
     queryset = Medicine.objects.all().order_by('name')
     serializer_class = MedicineSerializer
     filterset_class = MedicineFilter
@@ -31,13 +21,7 @@ class MedicineViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class PharmacyViewSet(viewsets.ReadOnlyModelViewSet):
-    """GET /api/v1/pharmacies/?search=&district=&is_24_hour=&is_verified=&lat=&lng=&radius_km=
-
-    When lat/lng are both supplied, results are sorted nearest-first and
-    each result carries a distance_km field. radius_km (optional) drops
-    anything further than that. Without lat/lng, results fall back to
-    default DB ordering (by name) and distance_km is null.
-    """
+    """GET /api/v1/pharmacies/?search=&district=&is_24_hour=&is_verified=&lat=&lng=&radius_km="""
     queryset = Pharmacy.objects.all().order_by('name')
     serializer_class = PharmacySerializer
     filterset_class = PharmacyFilter
@@ -61,9 +45,6 @@ class PharmacyViewSet(viewsets.ReadOnlyModelViewSet):
                 except ValueError:
                     return Response({'detail': 'radius_km must be a number.'}, status=400)
 
-            # sort_by_proximity returns a plain list (Haversine can't be
-            # expressed in SQLite), but DRF's paginator handles lists via
-            # slicing just as well as querysets, so pagination still works.
             queryset = sort_by_proximity(queryset, lat, lng, radius_km)
 
         page = self.paginate_queryset(queryset)
@@ -79,4 +60,3 @@ class PharmacyViewSet(viewsets.ReadOnlyModelViewSet):
         stock = pharmacy.stock_entries.select_related('medicine').order_by('medicine__name')
         serializer = PharmacyMedicineStockSerializer(stock, many=True)
         return Response(serializer.data)
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)

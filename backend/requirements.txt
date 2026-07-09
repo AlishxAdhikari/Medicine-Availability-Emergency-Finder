@@ -5,10 +5,7 @@ Django==6.0.7
 django-cors-headers==4.9.0
 django-filter==25.2
 djangorestframework==3.17.1
-<<<<<<< HEAD
-=======
 djangorestframework-simplejwt==5.5.1
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
 drf-spectacular==0.30.0
 Faker==40.28.1
 inflection==0.5.1

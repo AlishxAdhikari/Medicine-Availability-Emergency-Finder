@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import '../state.dart';
-<<<<<<< HEAD
-=======
-import '../services/auth_service.dart';
 import '../services/api_client.dart';
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
+import '../services/auth_service.dart';
+import '../state.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -18,10 +15,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
-<<<<<<< HEAD
-=======
   bool _isLoading = false;
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
 
   @override
   void dispose() {
@@ -30,12 +24,6 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-<<<<<<< HEAD
-  void _handleLogin() {
-    if (_formKey.currentState!.validate()) {
-      AppStateManager.instance.setLoggedIn(true);
-      Navigator.pushReplacementNamed(context, '/home');
-=======
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -47,10 +35,6 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
       if (!mounted) return;
-      // Prefer the server's canonical username (the user's chosen full name)
-      // so the UI greets them by the name they registered with rather
-      // than the raw identifier they typed (which might be an email
-      // address or phone number).
       final user = (loginData['user'] ?? {}) as Map<String, dynamic>;
       AppStateManager.instance.updateProfile(
         AppStateManager.instance.buildProfileFromAuth(
@@ -75,7 +59,6 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
     }
   }
 
@@ -291,11 +274,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           // Login Button
                           ElevatedButton(
-<<<<<<< HEAD
-                            onPressed: _handleLogin,
-=======
                             onPressed: _isLoading ? null : _handleLogin,
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                             style: ElevatedButton.styleFrom(
                               backgroundColor: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
                               foregroundColor: isDark ? Colors.black : Colors.white,
@@ -304,26 +283,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-<<<<<<< HEAD
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  'Login to MedAlert',
-                                  style: theme.textTheme.labelLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: isDark ? Colors.black : Colors.white,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Icon(
-                                  Icons.arrow_forward,
-                                  size: 18,
-                                  color: isDark ? Colors.black : Colors.white,
-                                ),
-                              ],
-                            ),
-=======
                             child: _isLoading
                                 ? SizedBox(
                                     height: 20,
@@ -351,7 +310,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ),
                                     ],
                                   ),
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                           ),
                           const SizedBox(height: 24),
 

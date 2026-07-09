@@ -1,13 +1,8 @@
-<<<<<<< HEAD
-import 'package:flutter/material.dart';
-import '../state.dart';
-=======
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../state.dart';
-import '../services/pharmacy_service.dart';
 import '../services/api_client.dart';
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
+import '../services/pharmacy_service.dart';
+import '../state.dart';
 
 class PharmacySearchScreen extends StatefulWidget {
   const PharmacySearchScreen({super.key});
@@ -18,25 +13,16 @@ class PharmacySearchScreen extends StatefulWidget {
 
 class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
   final TextEditingController _searchController = TextEditingController();
-<<<<<<< HEAD
-=======
   Timer? _debounce;
-
   List<Pharmacy> _results = [];
   bool _isLoading = true;
   String? _error;
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(() {
       AppStateManager.instance.pharmacySearchQueryNotifier.value = _searchController.text;
-<<<<<<< HEAD
-    });
-=======
-      // Debounce so a search request doesn't fire on every keystroke --
-      // wait for a short pause in typing instead.
       _debounce?.cancel();
       _debounce = Timer(const Duration(milliseconds: 500), _fetchPharmacies);
     });
@@ -69,15 +55,11 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
         _isLoading = false;
       });
     }
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
   }
 
   @override
   void dispose() {
-<<<<<<< HEAD
-=======
     _debounce?.cancel();
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
     _searchController.dispose();
     super.dispose();
   }
@@ -173,10 +155,7 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                     onChanged: (val) {
                       AppStateManager.instance.pharmacyRadiusNotifier.value = val;
                     },
-<<<<<<< HEAD
-=======
                     onChangeEnd: (val) => _fetchPharmacies(),
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                   ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -194,21 +173,6 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
 
         // Pharmacies List
         Expanded(
-<<<<<<< HEAD
-          child: ValueListenableBuilder<String>(
-            valueListenable: AppStateManager.instance.pharmacySearchQueryNotifier,
-            builder: (context, query, _) {
-              final filtered = AppStateManager.instance.mockPharmacies.where((p) {
-                if (query.isEmpty) return true;
-                return p.name.toLowerCase().contains(query.toLowerCase()) ||
-                    p.items.any((item) => (item['name'] as String).toLowerCase().contains(query.toLowerCase()));
-              }).toList();
-
-              if (filtered.isEmpty) {
-                return Center(
-                  child: Text(
-                    'No pharmacies found matching "$query"',
-=======
           child: Builder(
             builder: (context) {
               if (_isLoading) {
@@ -247,7 +211,6 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                     query.isEmpty
                         ? 'No pharmacies found in this radius'
                         : 'No pharmacies found matching "$query"',
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                     style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
                   ),
                 );
@@ -255,15 +218,9 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
 
               return ListView.builder(
                 padding: const EdgeInsets.only(bottom: 80),
-<<<<<<< HEAD
-                itemCount: filtered.length,
-                itemBuilder: (context, index) {
-                  final pharmacy = filtered[index];
-=======
                 itemCount: _results.length,
                 itemBuilder: (context, index) {
                   final pharmacy = _results[index];
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                   return _buildPharmacyCard(context, pharmacy);
                 },
               );

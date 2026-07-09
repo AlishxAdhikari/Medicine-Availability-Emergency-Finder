@@ -1,10 +1,4 @@
-<<<<<<< HEAD
-from django.shortcuts import render
-
-# Create your views here.
-=======
-from django.contrib.auth import authenticate
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -15,13 +9,7 @@ User = get_user_model()
 
 
 class RegisterView(generics.CreateAPIView):
-    """POST /api/v1/auth/register/
-
-    Public endpoint. Login is handled separately by simplejwt's
-    TokenObtainPairView (see core/urls.py) — this view only creates the
-    account, it does not issue tokens itself, so the client always does an
-    explicit login step right after registering.
-    """
+    """POST /api/v1/auth/register/"""
     permission_classes = [permissions.AllowAny]
     serializer_class = RegisterSerializer
 
@@ -35,11 +23,7 @@ class RegisterView(generics.CreateAPIView):
 
 
 class LoginIdentifierView(generics.GenericAPIView):
-    """POST /api/v1/auth/login-identifier/
-
-    Allows login with either an email or phone number by resolving the user
-    first and then issuing JWTs via simplejwt.
-    """
+    """POST /api/v1/auth/login-identifier/"""
     permission_classes = [permissions.AllowAny]
     serializer_class = LoginIdentifierSerializer
 
@@ -57,10 +41,9 @@ class LoginIdentifierView(generics.GenericAPIView):
             user = User.objects.filter(username__iexact=identifier).first()
 
         if user is None:
-            # If no user matched by username/email, try to find a user by
-            # phone number stored on their MedicalProfile.
             try:
                 from .models import MedicalProfile
+
                 profile = MedicalProfile.objects.filter(phone_number__iexact=identifier).first()
                 user = profile.user if profile is not None else None
             except Exception:
@@ -78,4 +61,3 @@ class LoginIdentifierView(generics.GenericAPIView):
             'access': str(refresh.access_token),
             'user': UserSerializer(authenticated_user).data,
         }, status=status.HTTP_200_OK)
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)

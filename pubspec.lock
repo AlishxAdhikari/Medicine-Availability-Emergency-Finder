@@ -102,8 +102,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.0.0"
-<<<<<<< HEAD
-=======
   flutter_secure_storage:
     dependency: "direct main"
     description:
@@ -152,20 +150,16 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.2"
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
   flutter_test:
     dependency: "direct dev"
     description: flutter
     source: sdk
     version: "0.0.0"
-<<<<<<< HEAD
-=======
   flutter_web_plugins:
     dependency: transitive
     description: flutter
     source: sdk
     version: "0.0.0"
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
   google_fonts:
     dependency: "direct main"
     description:
@@ -183,11 +177,7 @@ packages:
     source: hosted
     version: "2.0.2"
   http:
-<<<<<<< HEAD
-    dependency: transitive
-=======
     dependency: "direct main"
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
     description:
       name: http
       sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
@@ -218,8 +208,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.1"
-<<<<<<< HEAD
-=======
   js:
     dependency: transitive
     description:
@@ -228,7 +216,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.7"
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
   leak_tracker:
     dependency: transitive
     description:
@@ -482,8 +469,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
-<<<<<<< HEAD
-=======
   win32:
     dependency: transitive
     description:
@@ -492,7 +477,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.15.0"
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
   xdg_directories:
     dependency: transitive
     description:
