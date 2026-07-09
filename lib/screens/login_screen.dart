@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
+<<<<<<< HEAD
+=======
+import '../services/auth_service.dart';
+import '../services/api_client.dart';
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -13,6 +18,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+<<<<<<< HEAD
+=======
+  bool _isLoading = false;
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
 
   @override
   void dispose() {
@@ -21,10 +30,52 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+<<<<<<< HEAD
   void _handleLogin() {
     if (_formKey.currentState!.validate()) {
       AppStateManager.instance.setLoggedIn(true);
       Navigator.pushReplacementNamed(context, '/home');
+=======
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final identifier = _identifierController.text.trim();
+      final loginData = await AuthService.instance.login(
+        username: identifier,
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      // Prefer the server's canonical username (the user's chosen full name)
+      // so the UI greets them by the name they registered with rather
+      // than the raw identifier they typed (which might be an email
+      // address or phone number).
+      final user = (loginData['user'] ?? {}) as Map<String, dynamic>;
+      AppStateManager.instance.updateProfile(
+        AppStateManager.instance.buildProfileFromAuth(
+          fullName: user['username'] as String?,
+          email: user['email'] as String?,
+        ),
+      );
+      AppStateManager.instance.setLoggedIn(true);
+      Navigator.pushReplacementNamed(context, '/home');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: Theme.of(context).colorScheme.error),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Could not reach the server. Check your connection and try again.'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
     }
   }
 
@@ -240,7 +291,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           // Login Button
                           ElevatedButton(
+<<<<<<< HEAD
                             onPressed: _handleLogin,
+=======
+                            onPressed: _isLoading ? null : _handleLogin,
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                             style: ElevatedButton.styleFrom(
                               backgroundColor: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
                               foregroundColor: isDark ? Colors.black : Colors.white,
@@ -249,6 +304,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
+<<<<<<< HEAD
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -267,6 +323,35 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ],
                             ),
+=======
+                            child: _isLoading
+                                ? SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: isDark ? Colors.black : Colors.white,
+                                    ),
+                                  )
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        'Login to MedAlert',
+                                        style: theme.textTheme.labelLarge?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark ? Colors.black : Colors.white,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Icon(
+                                        Icons.arrow_forward,
+                                        size: 18,
+                                        color: isDark ? Colors.black : Colors.white,
+                                      ),
+                                    ],
+                                  ),
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                           ),
                           const SizedBox(height: 24),
 

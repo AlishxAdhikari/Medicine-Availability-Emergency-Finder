@@ -1,8 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<<<<<<< HEAD
     <application
         android:label="medalert"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+=======
+    <!-- Required for any network request -- without this, every call to
+         the Django backend fails silently with a SocketException. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <application
+        android:label="medalert"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
         <activity
             android:name=".MainActivity"
             android:exported="true"

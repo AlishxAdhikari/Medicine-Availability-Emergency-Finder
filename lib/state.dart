@@ -290,6 +290,55 @@ class AppStateManager {
     ),
   ];
 
+<<<<<<< HEAD
+=======
+  UserProfile buildProfileFromAuth({
+    String? fullName,
+    String? email,
+    String? phoneNumber,
+    String? dob,
+    String? gender,
+    String? medicalId,
+    String? bloodGroup,
+    String? height,
+    String? weight,
+  }) {
+    final currentProfile = userProfileNotifier.value;
+    final hasCustomProfile =
+        currentProfile.fullName != 'Sarah Jenkins' ||
+        currentProfile.phoneNumber != '(555) 123-4567' ||
+        currentProfile.medicalId != 'MA-882-991';
+
+    final rawFullName = fullName?.trim();
+    final rawEmail = email?.trim();
+    final fallbackName = rawEmail != null && rawEmail.isNotEmpty
+        ? (rawEmail.contains('@') ? rawEmail.split('@').first : rawEmail)
+        : currentProfile.fullName;
+    final resolvedName = (rawFullName != null && rawFullName.isNotEmpty)
+        ? rawFullName
+        : (hasCustomProfile ? currentProfile.fullName : fallbackName);
+
+    final resolvedEmail = rawEmail;
+    final medicalIdSeed = resolvedEmail ?? resolvedName;
+    final generatedMedicalId = medicalIdSeed.isEmpty
+        ? currentProfile.medicalId
+        : 'MA-${medicalIdSeed.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase().substring(0, medicalIdSeed.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').length > 6 ? 6 : medicalIdSeed.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').length)}';
+
+    return currentProfile.copyWith(
+      fullName: resolvedName,
+      dob: dob ?? currentProfile.dob,
+      gender: gender ?? currentProfile.gender,
+      phoneNumber: phoneNumber ?? currentProfile.phoneNumber,
+      medicalId: medicalId?.trim().isNotEmpty == true
+          ? medicalId!.trim()
+          : (hasCustomProfile ? currentProfile.medicalId : generatedMedicalId),
+      bloodGroup: bloodGroup ?? currentProfile.bloodGroup,
+      height: height ?? currentProfile.height,
+      weight: weight ?? currentProfile.weight,
+    );
+  }
+
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
   void toggleTheme() {
     themeModeNotifier.value =
         themeModeNotifier.value == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;

@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
+<<<<<<< HEAD
+=======
+import '../services/auth_service.dart';
+import '../services/api_client.dart';
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
 
 class CreateAccountScreen extends StatefulWidget {
   const CreateAccountScreen({super.key});
@@ -16,6 +21,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+<<<<<<< HEAD
+=======
+  bool _isLoading = false;
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
 
   @override
   void dispose() {
@@ -27,6 +36,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     super.dispose();
   }
 
+<<<<<<< HEAD
   void _handleSignUp() {
     if (_formKey.currentState!.validate()) {
       // Update in-memory user profile
@@ -41,11 +51,64 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         dob: _dobController.text.trim().isNotEmpty
             ? _dobController.text.trim()
             : currentProfile.dob,
+=======
+  Future<void> _handleSignUp() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+    try {
+      // RegisterSerializer (core/serializers.py) needs a username separate
+      // from email. There's no dedicated username field on this screen, so
+      // the email address doubles as the username -- login_screen.dart
+      // relies on this same convention.
+      final fullName = _nameController.text.trim();
+      final email = _emailController.text.trim();
+      final phone = _phoneController.text.trim();
+      final password = _passwordController.text;
+      final username = fullName.isNotEmpty ? fullName : email;
+
+      await AuthService.instance.register(
+        username: username,
+        email: email,
+        password: password,
+        phone: phone,
+      );
+      // RegisterView only creates the account, it doesn't issue tokens --
+      // log in immediately after so the person lands in the app signed in,
+      // matching what this screen looked like before it talked to a backend.
+      await AuthService.instance.login(username: username, password: password);
+
+      if (!mounted) return;
+
+      final newProfile = AppStateManager.instance.buildProfileFromAuth(
+        fullName: fullName,
+        email: email,
+        phoneNumber: phone,
+        dob: _dobController.text.trim(),
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
       );
       AppStateManager.instance.updateProfile(newProfile);
       AppStateManager.instance.setLoggedIn(true);
 
       Navigator.pushReplacementNamed(context, '/home');
+<<<<<<< HEAD
+=======
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: Theme.of(context).colorScheme.error),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Could not reach the server. Check your connection and try again.'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
     }
   }
 
@@ -335,7 +398,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
 
                           // Sign Up Button
                           ElevatedButton(
+<<<<<<< HEAD
                             onPressed: _handleSignUp,
+=======
+                            onPressed: _isLoading ? null : _handleSignUp,
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                             style: ElevatedButton.styleFrom(
                               backgroundColor: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
                               foregroundColor: isDark ? Colors.black : Colors.white,
@@ -344,6 +411,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
+<<<<<<< HEAD
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -362,6 +430,35 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                                 ),
                               ],
                             ),
+=======
+                            child: _isLoading
+                                ? SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: isDark ? Colors.black : Colors.white,
+                                    ),
+                                  )
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        'Register to MedAlert',
+                                        style: theme.textTheme.labelLarge?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark ? Colors.black : Colors.white,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Icon(
+                                        Icons.arrow_forward,
+                                        size: 18,
+                                        color: isDark ? Colors.black : Colors.white,
+                                      ),
+                                    ],
+                                  ),
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
                           ),
                           const SizedBox(height: 24),
 

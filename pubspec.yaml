@@ -35,6 +35,11 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   google_fonts: ^8.1.0
+<<<<<<< HEAD
+=======
+  http: ^1.2.2
+  flutter_secure_storage: ^9.2.2
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
 
 dev_dependencies:
   flutter_test:
