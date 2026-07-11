@@ -1,0 +1,8 @@
+env
+<<<<<<< HEAD
+.env
+=======
+.env
+.venv
+venv
+>>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
