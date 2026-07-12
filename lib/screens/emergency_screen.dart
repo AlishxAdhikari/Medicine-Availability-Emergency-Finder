@@ -1,8 +1,50 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
+import '../services/emergency_service.dart';
 
-class EmergencyScreen extends StatelessWidget {
+class EmergencyScreen extends StatefulWidget {
   const EmergencyScreen({super.key});
+
+  @override
+  State<EmergencyScreen> createState() => _EmergencyScreenState();
+}
+
+class _EmergencyScreenState extends State<EmergencyScreen> {
+  List<Ambulance> _ambulances = [];
+  List<BloodBank> _bloodBanks = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  // Fetches both lists from the real backend (emergency/views.py) and
+  // replaces the old hardcoded state.mockAmbulances/mockBloodBanks reads.
+  // Fetches the full lists once; district filtering still happens
+  // client-side below, same as it did against the mock data before.
+  Future<void> _loadData() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final ambulances = await EmergencyService.instance.searchAmbulances();
+      final bloodBanks = await EmergencyService.instance.searchBloodBanks();
+      setState(() {
+        _ambulances = ambulances;
+        _bloodBanks = bloodBanks;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Could not load emergency services. Check your connection and try again.';
+        _loading = false;
+      });
+    }
+  }
 
   void _showSOSCallDialog(BuildContext context) {
     showDialog(
@@ -51,6 +93,30 @@ class EmergencyScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final state = AppStateManager.instance;
+
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+                const SizedBox(height: 12),
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       body: SingleChildScrollView(
@@ -201,7 +267,7 @@ class EmergencyScreen extends StatelessWidget {
         ValueListenableBuilder<String>(
           valueListenable: state.selectedDistrictNotifier,
           builder: (context, district, _) {
-            final filteredAmbulances = state.mockAmbulances.where((amb) {
+            final filteredAmbulances = _ambulances.where((amb) {
               return amb.location.contains(district);
             }).toList();
 
@@ -442,7 +508,7 @@ class EmergencyScreen extends StatelessWidget {
             return ValueListenableBuilder<String>(
               valueListenable: state.selectedDistrictNotifier,
               builder: (context, district, _) {
-                final filteredBanks = state.mockBloodBanks.where((bank) {
+                final filteredBanks = _bloodBanks.where((bank) {
                   return bank.location.contains(district);
                 }).toList();
 

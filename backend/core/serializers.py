@@ -2,6 +2,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from .models import MedicalProfile
+
 
 class LoginIdentifierSerializer(serializers.Serializer):
     identifier = serializers.CharField(required=True)
@@ -64,3 +66,40 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ('id', 'username', 'email')
+
+
+class MedicalProfileSerializer(serializers.ModelSerializer):
+    """Full profile, for the logged-in owner only (GET/PUT /medical-id/).
+
+    share_token is read_only: it's generated automatically when the
+    MedicalProfile row is created (see models.py), the user never sets it
+    themselves, but the app still needs to read it so it can build the
+    QR-code / share link.
+    """
+
+    class Meta:
+        model = MedicalProfile
+        fields = (
+            'id', 'blood_group', 'height_cm', 'weight_kg', 'allergies',
+            'chronic_conditions', 'current_medications',
+            'emergency_contact_name', 'emergency_contact_phone',
+            'phone_number', 'share_token', 'updated_at',
+        )
+        read_only_fields = ('id', 'share_token', 'updated_at')
+
+
+class SharedProfileSerializer(serializers.ModelSerializer):
+    """Public, read-only view of a profile for the /medical-id/share/<token>/
+    endpoint — what a first responder sees when they scan a QR code.
+
+    Deliberately excludes anything that identifies the person: no user,
+    username, email, or phone_number. Only medically-relevant fields.
+    """
+
+    class Meta:
+        model = MedicalProfile
+        fields = (
+            'blood_group', 'height_cm', 'weight_kg', 'allergies',
+            'chronic_conditions', 'current_medications',
+            'emergency_contact_name', 'emergency_contact_phone',
+        )

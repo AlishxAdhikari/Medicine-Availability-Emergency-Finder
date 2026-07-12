@@ -3,7 +3,14 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .serializers import LoginIdentifierSerializer, RegisterSerializer, UserSerializer
+from .models import MedicalProfile
+from .serializers import (
+    LoginIdentifierSerializer,
+    MedicalProfileSerializer,
+    RegisterSerializer,
+    SharedProfileSerializer,
+    UserSerializer,
+)
 
 User = get_user_model()
 
@@ -61,3 +68,35 @@ class LoginIdentifierView(generics.GenericAPIView):
             'access': str(refresh.access_token),
             'user': UserSerializer(authenticated_user).data,
         }, status=status.HTTP_200_OK)
+
+
+class MedicalProfileView(generics.RetrieveUpdateAPIView):
+    """GET/PUT /api/v1/auth/medical-id/ — the logged-in user's own profile.
+
+    Only usable by a signed-in user (permission_classes below). There is no
+    <id> in the URL on purpose: get_object() always resolves to "whoever's
+    JWT this is", so there's no way to request someone else's profile by
+    guessing a different id/pk in the URL.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = MedicalProfileSerializer
+
+    def get_object(self):
+        # get_or_create so a brand-new user who has never filled in their
+        # medical info yet still gets a 200 with mostly-blank fields,
+        # instead of a confusing 404 on their very first visit to this screen.
+        profile, _ = MedicalProfile.objects.get_or_create(user=self.request.user)
+        return profile
+
+
+class SharedProfileView(generics.RetrieveAPIView):
+    """GET /api/v1/auth/medical-id/share/<uuid:share_token>/ — public,
+    no login required. This is what a first-responder's phone hits after
+    scanning the user's QR code, so permission_classes is deliberately
+    AllowAny. The narrower SharedProfileSerializer (no name/email/phone)
+    is what keeps this safe to expose without auth.
+    """
+    permission_classes = [permissions.AllowAny]
+    serializer_class = SharedProfileSerializer
+    queryset = MedicalProfile.objects.all()
+    lookup_field = 'share_token'

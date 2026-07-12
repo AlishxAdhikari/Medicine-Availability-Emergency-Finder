@@ -1,3 +1,7 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import AmbulanceProvider, BloodBank, BloodStock
+
+admin.site.register(BloodBank)
+admin.site.register(BloodStock)
+admin.site.register(AmbulanceProvider)
