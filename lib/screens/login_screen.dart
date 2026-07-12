@@ -75,23 +75,30 @@ class _LoginScreenState extends State<LoginScreen> {
             backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withValues(alpha: 0.8),
             elevation: 0,
             leadingWidth: 150,
-            leading: Row(
-              children: [
-                const SizedBox(width: 16),
-                Icon(
-                  Icons.location_on,
-                  color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
+            leading: Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.location_on,
+                      color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'MedAlert',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  'MedAlert',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-              ],
+              ),
             ),
             actions: [
               IconButton(
@@ -376,8 +383,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           // Footer Link
                           Center(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                            child: Wrap(
+                              alignment: WrapAlignment.center,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 4,
+                              runSpacing: 4,
                               children: [
                                 Text(
                                   'New to MedAlert?',
@@ -385,7 +395,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                     color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
-                                const SizedBox(width: 4),
                                 TextButton(
                                   onPressed: () {
                                     Navigator.pushNamed(context, '/create_account');

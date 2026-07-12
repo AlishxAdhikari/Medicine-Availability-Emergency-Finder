@@ -20,6 +20,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
   List<String> _allergies = [];
   List<Medication> _medications = [];
   List<EmergencyContact> _contacts = [];
+  String _selectedGender = 'Female';
 
   @override
   void initState() {
@@ -29,6 +30,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
     _fullNameController = TextEditingController(text: profile.fullName);
     _dobController = TextEditingController(text: profile.dob);
     _phoneController = TextEditingController(text: profile.phoneNumber);
+    _selectedGender = profile.gender;
     
     _allergies = List.from(profile.allergies);
     _medications = List.from(profile.medications);
@@ -108,6 +110,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
       final updatedProfile = currentProfile.copyWith(
         fullName: _fullNameController.text,
         dob: _dobController.text,
+        gender: _selectedGender,
         phoneNumber: _phoneController.text,
         allergies: _allergies,
         medications: _medications,
@@ -221,6 +224,26 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
                         return 'Phone number is required';
                       }
                       return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: _selectedGender,
+                    decoration: const InputDecoration(
+                      labelText: 'Gender',
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'Male', child: Text('Male')),
+                      DropdownMenuItem(value: 'Female', child: Text('Female')),
+                      DropdownMenuItem(value: 'Other', child: Text('Other')),
+                      DropdownMenuItem(value: 'Prefer not to say', child: Text('Prefer not to say')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() {
+                          _selectedGender = val;
+                        });
+                      }
                     },
                   ),
                 ],

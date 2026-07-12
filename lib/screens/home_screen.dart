@@ -27,6 +27,126 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                AppStateManager.instance.setLoggedIn(false);
+                if (context.mounted) {
+                  Navigator.pushReplacementNamed(context, '/');
+                }
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+              ),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDrawer(BuildContext context, ThemeData theme, bool isDark) {
+    final state = AppStateManager.instance;
+    
+    return Drawer(
+      child: Container(
+        color: isDark ? const Color(0xFF191C20) : Colors.white,
+        child: Column(
+          children: [
+            UserAccountsDrawerHeader(
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF282A2F) : theme.colorScheme.primary,
+              ),
+              accountName: ValueListenableBuilder<UserProfile>(
+                valueListenable: state.userProfileNotifier,
+                builder: (context, profile, _) => Text(
+                  profile.fullName,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              accountEmail: ValueListenableBuilder<UserProfile>(
+                valueListenable: state.userProfileNotifier,
+                builder: (context, profile, _) => Text(
+                  profile.medicalId,
+                ),
+              ),
+              currentAccountPicture: CircleAvatar(
+                backgroundImage: const NetworkImage(
+                  'https://lh3.googleusercontent.com/aida-public/AB6AXuBscqWBCgTBCJQkde59nPVfutHGh9P47nmalT5zHHIJy75_hN0xrGt3_FJ7Sngx_jm9bOOGe7csaFWGmDq2wZ2h2YynH3qZokHtTV952WhzVqCQlYMFl1OVwvydOO6FjYZb8oB3tmW6ykSHrS9SXxfJPSVi9Py-4SOZ_b4h7GollXk0oLAdBDn4HvAW4rNPWLfbQ6GcPFyJy_B3i0FAXs7N7XMT1BtvN3CdYeeAMhtQFNinRUf941n6WPt9ptKtQGTI5IYrqP8Q74H5',
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.home),
+              title: const Text('Home'),
+              onTap: () {
+                navigateToTab(0);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.local_pharmacy),
+              title: const Text('Pharmacy Search'),
+              onTap: () {
+                navigateToTab(1);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.emergency_share),
+              title: const Text('Emergency Services'),
+              onTap: () {
+                navigateToTab(2);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.contact_emergency),
+              title: const Text('Medical ID'),
+              onTap: () {
+                navigateToTab(3);
+                Navigator.pop(context);
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: Icon(
+                isDark ? Icons.light_mode : Icons.dark_mode,
+              ),
+              title: Text(isDark ? 'Light Mode' : 'Dark Mode'),
+              onTap: () {
+                state.toggleTheme();
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Color(0xFFBA1A1A)),
+              title: const Text('Logout', style: TextStyle(color: Color(0xFFBA1A1A))),
+              onTap: () {
+                Navigator.pop(context);
+                _showLogoutDialog(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -36,10 +156,12 @@ class _AppShellState extends State<AppShell> {
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withValues(alpha: 0.8),
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.menu),
-          onPressed: () {},
-          color: theme.colorScheme.onSurfaceVariant,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
         title: Text(
           'MedAlert',
@@ -60,10 +182,18 @@ class _AppShellState extends State<AppShell> {
               AppStateManager.instance.toggleTheme();
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            color: theme.colorScheme.onSurfaceVariant,
+            onPressed: () {
+              _showLogoutDialog(context);
+            },
+          ),
           const SizedBox(width: 8),
         ],
       ),
       body: _tabs[_currentIndex],
+      drawer: _buildDrawer(context, theme, isDark),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: navigateToTab,
