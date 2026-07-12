@@ -52,6 +52,7 @@ class UserProfile {
   final List<String> allergies;
   final List<Medication> medications;
   final List<EmergencyContact> emergencyContacts;
+  final String? profilePictureUrl; // Added field for profile picture URL
 
   UserProfile({
     required this.fullName,
@@ -65,6 +66,7 @@ class UserProfile {
     required this.allergies,
     required this.medications,
     required this.emergencyContacts,
+    this.profilePictureUrl,
   });
 
   UserProfile copyWith({
@@ -79,6 +81,7 @@ class UserProfile {
     List<String>? allergies,
     List<Medication>? medications,
     List<EmergencyContact>? emergencyContacts,
+    String? profilePictureUrl,
   }) {
     return UserProfile(
       fullName: fullName ?? this.fullName,
@@ -92,6 +95,7 @@ class UserProfile {
       allergies: allergies ?? this.allergies,
       medications: medications ?? this.medications,
       emergencyContacts: emergencyContacts ?? this.emergencyContacts,
+      profilePictureUrl: profilePictureUrl ?? this.profilePictureUrl,
     );
   }
 }
@@ -205,6 +209,7 @@ class AppStateManager {
           initials: 'MR',
         ),
       ],
+      profilePictureUrl: null, // Default to null
     ),
   );
 
@@ -300,6 +305,7 @@ class AppStateManager {
     String? bloodGroup,
     String? height,
     String? weight,
+    String? profilePictureUrl, // Added for profile picture URL
   }) {
     final currentProfile = userProfileNotifier.value;
     final hasCustomProfile =
@@ -333,6 +339,7 @@ class AppStateManager {
       bloodGroup: bloodGroup ?? currentProfile.bloodGroup,
       height: height ?? currentProfile.height,
       weight: weight ?? currentProfile.weight,
+      profilePictureUrl: profilePictureUrl ?? currentProfile.profilePictureUrl, // Updated
     );
   }
   void toggleTheme() {

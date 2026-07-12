@@ -84,10 +84,15 @@ class _AppShellState extends State<AppShell> {
                   profile.medicalId,
                 ),
               ),
-              currentAccountPicture: CircleAvatar(
-                backgroundImage: const NetworkImage(
-                  'https://lh3.googleusercontent.com/aida-public/AB6AXuBscqWBCgTBCJQkde59nPVfutHGh9P47nmalT5zHHIJy75_hN0xrGt3_FJ7Sngx_jm9bOOGe7csaFWGmDq2wZ2h2YynH3qZokHtTV952WhzVqCQlYMFl1OVwvydOO6FjYZb8oB3tmW6ykSHrS9SXxfJPSVi9Py-4SOZ_b4h7GollXk0oLAdBDn4HvAW4rNPWLfbQ6GcPFyJy_B3i0FAXs7N7XMT1BtvN3CdYeeAMhtQFNinRUf941n6WPt9ptKtQGTI5IYrqP8Q74H5',
-                ),
+              currentAccountPicture: ValueListenableBuilder<UserProfile>(
+                valueListenable: state.userProfileNotifier,
+                builder: (context, profile, _) {
+                  return CircleAvatar(
+                    backgroundImage: profile.profilePictureUrl != null && profile.profilePictureUrl!.isNotEmpty
+                        ? NetworkImage(profile.profilePictureUrl!)
+                        : const AssetImage('assets/default_profile.png') as ImageProvider,
+                  );
+                },
               ),
             ),
             ListTile(
@@ -154,7 +159,7 @@ class _AppShellState extends State<AppShell> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withValues(alpha: 0.8),
+        backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withOpacity(0.8),
         elevation: 0,
         leading: Builder(
           builder: (context) => IconButton(
@@ -200,7 +205,7 @@ class _AppShellState extends State<AppShell> {
         type: BottomNavigationBarType.fixed,
         backgroundColor: isDark ? const Color(0xFF191C20) : Colors.white,
         selectedItemColor: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-        unselectedItemColor: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+        unselectedItemColor: theme.colorScheme.onSurfaceVariant.withOpacity(0.6),
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
         unselectedLabelStyle: const TextStyle(fontSize: 10),
         items: const [
@@ -249,7 +254,7 @@ class HomeDashboardTab extends StatelessWidget {
                   color: isDark ? const Color(0xFF1D2024) : const Color(0xFFF1F3FC),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                    color: theme.colorScheme.outlineVariant.withOpacity(0.3),
                   ),
                 ),
                 padding: const EdgeInsets.all(20.0),
@@ -287,10 +292,10 @@ class HomeDashboardTab extends StatelessWidget {
                               : theme.colorScheme.primaryContainer,
                           width: 2,
                         ),
-                        image: const DecorationImage(
-                          image: NetworkImage(
-                            'https://lh3.googleusercontent.com/aida-public/AB6AXuBscqWBCgTBCJQkde59nPVfutHGh9P47nmalT5zHHIJy75_hN0xrGt3_FJ7Sngx_jm9bOOGe7csaFWGmDq2wZ2h2YynH3qZokHtTV952WhzVqCQlYMFl1OVwvydOO6FjYZb8oB3tmW6ykSHrS9SXxfJPSVi9Py-4SOZ_b4h7GollXk0oLAdBDn4HvAW4rNPWLfbQ6GcPFyJy_B3i0FAXs7N7XMT1BtvN3CdYeeAMhtQFNinRUf941n6WPt9ptKtQGTI5IYrqP8Q74H5',
-                          ),
+                        image: DecorationImage(
+                          image: profile.profilePictureUrl != null && profile.profilePictureUrl!.isNotEmpty
+                              ? NetworkImage(profile.profilePictureUrl!)
+                              : const AssetImage('assets/default_profile.png') as ImageProvider,
                           fit: BoxFit.cover,
                         ),
                       ),
@@ -343,9 +348,9 @@ class HomeDashboardTab extends StatelessWidget {
                     context,
                     icon: Icons.emergency,
                     label: 'Emergency Services',
-                    color: const Color(0xFFFFDAD6).withValues(alpha: 0.3),
+                    color: const Color(0xFFFFDAD6).withOpacity(0.3),
                     iconColor: const Color(0xFFBA1A1A),
-                    borderColor: const Color(0xFFBA1A1A).withValues(alpha: 0.3),
+                    borderColor: const Color(0xFFBA1A1A).withOpacity(0.3),
                     onTap: () {
                       final shell = context.findAncestorStateOfType<_AppShellState>();
                       shell?.navigateToTab(2);
@@ -501,12 +506,12 @@ class HomeDashboardTab extends StatelessWidget {
           border: Border.all(
             color: borderColor ??
                 (isDark
-                    ? const Color(0xFF44474E).withValues(alpha: 0.3)
-                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
+                    ? const Color(0xFF44474E).withOpacity(0.3)
+                    : theme.colorScheme.outlineVariant.withOpacity(0.3)),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
+              color: Colors.black.withOpacity(0.02),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -520,7 +525,7 @@ class HomeDashboardTab extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.12),
+                color: iconColor.withOpacity(0.12),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -546,136 +551,136 @@ class HomeDashboardTab extends StatelessWidget {
   }
 
   Widget _buildBloodBankCard(
-    BuildContext context, {
-    required String name,
-    required String distance,
-    required List<Map<String, dynamic>> availability,
-  }) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+      BuildContext context, {
+      required String name,
+      required String distance,
+      required List<Map<String, dynamic>> availability,
+    }) {
+      final theme = Theme.of(context);
+      final isDark = theme.brightness == Brightness.dark;
 
-    return Container(
-      width: 280,
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1D2024) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+      return Container(
+        width: 280,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1D2024) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+          ),
         ),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on,
-                          size: 14,
-                          color: theme.colorScheme.onSurfaceVariant,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onSurface,
                         ),
-                        const SizedBox(width: 2),
-                        Text(
-                          distance,
-                          style: theme.textTheme.bodySmall?.copyWith(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on,
+                            size: 14,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(width: 2),
+                          Text(
+                            distance,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF282A2F)
-                      : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                  shape: BoxShape.circle,
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF282A2F)
+                        : theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.directions,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
-                child: Icon(
-                  Icons.directions,
-                  size: 18,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Current Availability:',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: Row(
-              children: availability.map((item) {
-                final statusColor = item['color'] as Color;
-                return Expanded(
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 6),
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? const Color(0xFF15181C)
-                          : const Color(0xFFF1F3FC),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.2),
+            const SizedBox(height: 12),
+            Text(
+              'Current Availability:',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Row(
+                children: availability.map((item) {
+                  final statusColor = item['color'] as Color;
+                  return Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF15181C)
+                            : const Color(0xFFF1F3FC),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: statusColor.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            item['type'],
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            item['status'],
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          item['type'],
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          item['status'],
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: statusColor,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
+    }
 }

@@ -30,13 +30,13 @@ class MedicalIdScreen extends StatelessWidget {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                              color: theme.colorScheme.primaryContainer.withOpacity(0.5),
                               width: 2,
                             ),
-                            image: const DecorationImage(
-                              image: NetworkImage(
-                                'https://lh3.googleusercontent.com/aida-public/AB6AXuBscqWBCgTBCJQkde59nPVfutHGh9P47nmalT5zHHIJy75_hN0xrGt3_FJ7Sngx_jm9bOOGe7csaFWGmDq2wZ2h2YynH3qZokHtTV952WhzVqCQlYMFl1OVwvydOO6FjYZb8oB3tmW6ykSHrS9SXxfJPSVi9Py-4SOZ_b4h7GollXk0oLAdBDn4HvAW4rNPWLfbQ6GcPFyJy_B3i0FAXs7N7XMT1BtvN3CdYeeAMhtQFNinRUf941n6WPt9ptKtQGTI5IYrqP8Q74H5',
-                              ),
+                            image: DecorationImage(
+                              image: profile.profilePictureUrl != null && profile.profilePictureUrl!.isNotEmpty
+                                  ? NetworkImage(profile.profilePictureUrl!)
+                                  : const AssetImage('assets/default_profile.png') as ImageProvider,
                               fit: BoxFit.cover,
                             ),
                           ),
@@ -117,7 +117,7 @@ class MedicalIdScreen extends StatelessWidget {
                         Navigator.pushNamed(context, '/edit_medical_id');
                       },
                       style: IconButton.styleFrom(
-                        backgroundColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
+                        backgroundColor: theme.colorScheme.primaryContainer.withOpacity(0.1),
                         foregroundColor: theme.colorScheme.primary,
                       ),
                     ),
@@ -188,7 +188,7 @@ class MedicalIdScreen extends StatelessWidget {
         color: isDark ? const Color(0xFF1D2024) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
         ),
         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
       ),
@@ -216,7 +216,7 @@ class MedicalIdScreen extends StatelessWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                color: theme.colorScheme.outlineVariant.withOpacity(0.5),
               ),
             ),
             child: Image.network(
@@ -254,10 +254,10 @@ class MedicalIdScreen extends StatelessWidget {
         // Blood Group
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFFFDAD6).withValues(alpha: 0.3),
+            color: const Color(0xFFFFDAD6).withOpacity(0.3),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: const Color(0xFFBA1A1A).withValues(alpha: 0.2),
+              color: const Color(0xFFBA1A1A).withOpacity(0.2),
             ),
           ),
           padding: const EdgeInsets.all(12),
@@ -297,7 +297,7 @@ class MedicalIdScreen extends StatelessWidget {
             color: isDark ? const Color(0xFF1D2024) : Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+              color: theme.colorScheme.outlineVariant.withOpacity(0.3),
             ),
           ),
           padding: const EdgeInsets.all(12),
@@ -335,7 +335,7 @@ class MedicalIdScreen extends StatelessWidget {
             color: isDark ? const Color(0xFF1D2024) : Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+              color: theme.colorScheme.outlineVariant.withOpacity(0.3),
             ),
           ),
           padding: const EdgeInsets.all(12),
@@ -393,7 +393,7 @@ class MedicalIdScreen extends StatelessWidget {
         color: isDark ? const Color(0xFF1D2024) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
         ),
       ),
       padding: const EdgeInsets.all(16.0),
@@ -426,10 +426,10 @@ class MedicalIdScreen extends StatelessWidget {
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFBA1A1A).withValues(alpha: 0.1),
+                    color: const Color(0xFFBA1A1A).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(99),
                     border: Border.all(
-                      color: const Color(0xFFBA1A1A).withValues(alpha: 0.2),
+                      color: const Color(0xFFBA1A1A).withOpacity(0.2),
                     ),
                   ),
                   child: Text(
@@ -457,7 +457,7 @@ class MedicalIdScreen extends StatelessWidget {
         color: isDark ? const Color(0xFF1D2024) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
         ),
       ),
       padding: const EdgeInsets.all(16.0),
@@ -489,7 +489,7 @@ class MedicalIdScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     border: Border(
                       bottom: BorderSide(
-                        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
+                        color: theme.colorScheme.outlineVariant.withOpacity(0.2),
                       ),
                     ),
                   ),
@@ -540,7 +540,7 @@ class MedicalIdScreen extends StatelessWidget {
         color: isDark ? const Color(0xFF1D2024) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
         ),
       ),
       padding: const EdgeInsets.all(16.0),
@@ -575,7 +575,7 @@ class MedicalIdScreen extends StatelessWidget {
                     color: isDark ? const Color(0xFF15181C) : const Color(0xFFF9F9FF),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
+                      color: theme.colorScheme.outlineVariant.withOpacity(0.2),
                     ),
                   ),
                   child: Row(
@@ -595,9 +595,8 @@ class MedicalIdScreen extends StatelessWidget {
                       else
                         const CircleAvatar(
                           radius: 24,
-                          backgroundImage: NetworkImage(
-                            'https://lh3.googleusercontent.com/aida-public/AB6AXuDRuIEea10meXXgYRmB53rBdhem703pkWsqdz6pDljQ6xnca32NA57xCims_64gZauEwSHP0qqtBpfi-cFvUGbxbf-vlBVYEL9lszQuaWpq7GYWC5luQZj23K2Os3DTT7FzQyj0sHbTrpHiN_lXGFnuGbeL4-LjmJjwRGzZrgcj7mQE9I6y-0Ju_hF2KxHt8HV5WQhJgX9RwIZ_YYv_rr_x6UHO5mgzFsh4dSIsXrhRGPBt-7D6Dka1ZCP0HF6VYK8oYD2N_lmvf87J',
-                          ),
+                          backgroundColor: Colors.grey, // Default gray avatar
+                          child: Icon(Icons.person, color: Colors.white), // Default person icon
                         ),
                       const SizedBox(width: 12),
                       Expanded(

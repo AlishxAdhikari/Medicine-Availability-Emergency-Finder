@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../state.dart';
@@ -17,6 +18,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  String? _selectedGender;
   bool _obscurePassword = true;
   bool _isLoading = false;
 
@@ -56,6 +58,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         email: email,
         phoneNumber: phone,
         dob: _dobController.text.trim(),
+        gender: _selectedGender, // Pass selected gender
       );
       AppStateManager.instance.updateProfile(newProfile);
       AppStateManager.instance.setLoggedIn(true);
@@ -89,7 +92,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       builder: (context, themeMode, _) {
         return Scaffold(
           appBar: AppBar(
-            backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withValues(alpha: 0.8),
+            backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withOpacity(0.8),
             elevation: 0,
             leadingWidth: 150,
             leading: Row(
@@ -133,7 +136,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   width: 300,
                   height: 300,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.08),
+                    color: theme.colorScheme.primary.withOpacity(0.08),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -145,7 +148,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   width: 250,
                   height: 250,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.tertiary.withValues(alpha: 0.05),
+                    color: theme.colorScheme.tertiary.withOpacity(0.05),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -161,12 +164,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isDark
-                            ? const Color(0xFF44474E).withValues(alpha: 0.3)
-                            : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                            ? const Color(0xFF44474E).withOpacity(0.3)
+                            : theme.colorScheme.outlineVariant.withOpacity(0.3),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+                          color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
                           blurRadius: 20,
                           offset: const Offset(0, 4),
                         ),
@@ -189,12 +192,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                                   decoration: BoxDecoration(
                                     color: isDark
                                         ? const Color(0xFF282A2F)
-                                        : theme.colorScheme.primaryContainer.withValues(alpha: 0.2),
+                                        : theme.colorScheme.primaryContainer.withOpacity(0.2),
                                     shape: BoxShape.circle,
                                     border: Border.all(
                                       color: isDark
                                           ? Colors.transparent
-                                          : theme.colorScheme.primary.withValues(alpha: 0.2),
+                                          : theme.colorScheme.primary.withOpacity(0.2),
                                     ),
                                   ),
                                   child: Icon(
@@ -252,6 +255,32 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Please enter your date of birth';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Gender Selection
+                          DropdownButtonFormField<String>(
+                            value: _selectedGender,
+                            hint: const Text('Select Gender'),
+                            decoration: const InputDecoration(
+                              prefixIcon: Icon(Icons.people),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'Male', child: Text('Male')),
+                              DropdownMenuItem(value: 'Female', child: Text('Female')),
+                              DropdownMenuItem(value: 'Other', child: Text('Other')),
+                            ],
+                            onChanged: (String? newValue) {
+                              setState(() {
+                                _selectedGender = newValue;
+                              });
+                            },
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please select your gender';
                               }
                               return null;
                             },
