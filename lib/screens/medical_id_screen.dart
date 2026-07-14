@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
+import '../widgets/initials_avatar.dart';
 
 class MedicalIdScreen extends StatelessWidget {
   const MedicalIdScreen({super.key});
@@ -27,18 +28,18 @@ class MedicalIdScreen extends StatelessWidget {
                         Container(
                           width: 80,
                           height: 80,
+                          padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: theme.colorScheme.primaryContainer.withOpacity(0.5),
                               width: 2,
                             ),
-                            image: DecorationImage(
-                              image: profile.profilePictureUrl != null && profile.profilePictureUrl!.isNotEmpty
-                                  ? NetworkImage(profile.profilePictureUrl!)
-                                  : const AssetImage('assets/default_profile.png') as ImageProvider,
-                              fit: BoxFit.cover,
-                            ),
+                          ),
+                          child: InitialsAvatar(
+                            name: profile.fullName,
+                            imageUrl: profile.profilePictureUrl,
+                            radius: 38,
                           ),
                         ),
                         Positioned(

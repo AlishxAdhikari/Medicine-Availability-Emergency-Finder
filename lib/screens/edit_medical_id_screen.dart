@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
+import '../widgets/initials_avatar.dart';
 
 class EditMedicalIdScreen extends StatefulWidget {
   const EditMedicalIdScreen({super.key});
@@ -150,10 +151,12 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
             onPressed: () {},
             color: theme.colorScheme.onSurfaceVariant,
           ),
-          const CircleAvatar(
-            radius: 16,
-            backgroundImage: NetworkImage(
-              'https://lh3.googleusercontent.com/aida-public/AB6AXuBscqWBCgTBCJQkde59nPVfutHGh9P47nmalT5zHHIJy75_hN0xrGt3_FJ7Sngx_jm9bOOGe7csaFWGmDq2wZ2h2YynH3qZokHtTV952WhzVqCQlYMFl1OVwvydOO6FjYZb8oB3tmW6ykSHrS9SXxfJPSVi9Py-4SOZ_b4h7GollXk0oLAdBDn4HvAW4rNPWLfbQ6GcPFyJy_B3i0FAXs7N7XMT1BtvN3CdYeeAMhtQFNinRUf941n6WPt9ptKtQGTI5IYrqP8Q74H5',
+          ValueListenableBuilder<UserProfile>(
+            valueListenable: AppStateManager.instance.userProfileNotifier,
+            builder: (context, profile, _) => InitialsAvatar(
+              name: profile.fullName,
+              imageUrl: profile.profilePictureUrl,
+              radius: 16,
             ),
           ),
           const SizedBox(width: 16),

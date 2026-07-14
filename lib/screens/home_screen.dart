@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
+import '../widgets/initials_avatar.dart';
 import 'pharmacy_search_screen.dart';
 import 'emergency_screen.dart';
 import 'medical_id_screen.dart';
@@ -87,10 +88,10 @@ class _AppShellState extends State<AppShell> {
               currentAccountPicture: ValueListenableBuilder<UserProfile>(
                 valueListenable: state.userProfileNotifier,
                 builder: (context, profile, _) {
-                  return CircleAvatar(
-                    backgroundImage: profile.profilePictureUrl != null && profile.profilePictureUrl!.isNotEmpty
-                        ? NetworkImage(profile.profilePictureUrl!)
-                        : const AssetImage('assets/default_profile.png') as ImageProvider,
+                  return InitialsAvatar(
+                    name: profile.fullName,
+                    imageUrl: profile.profilePictureUrl,
+                    radius: 20,
                   );
                 },
               ),
@@ -284,6 +285,7 @@ class HomeDashboardTab extends StatelessWidget {
                     Container(
                       width: 56,
                       height: 56,
+                      padding: const EdgeInsets.all(2),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
@@ -292,12 +294,11 @@ class HomeDashboardTab extends StatelessWidget {
                               : theme.colorScheme.primaryContainer,
                           width: 2,
                         ),
-                        image: DecorationImage(
-                          image: profile.profilePictureUrl != null && profile.profilePictureUrl!.isNotEmpty
-                              ? NetworkImage(profile.profilePictureUrl!)
-                              : const AssetImage('assets/default_profile.png') as ImageProvider,
-                          fit: BoxFit.cover,
-                        ),
+                      ),
+                      child: InitialsAvatar(
+                        name: profile.fullName,
+                        imageUrl: profile.profilePictureUrl,
+                        radius: 26,
                       ),
                     ),
                   ],
