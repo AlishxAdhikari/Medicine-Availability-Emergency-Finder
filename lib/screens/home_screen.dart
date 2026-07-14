@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
+import '../services/auth_service.dart';
+import '../services/medical_profile_service.dart';
 import '../widgets/initials_avatar.dart';
 import 'pharmacy_search_screen.dart';
 import 'emergency_screen.dart';
@@ -21,6 +23,20 @@ class _AppShellState extends State<AppShell> {
     const EmergencyScreen(),
     const MedicalIdScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Pull the persisted medical profile (blood group, allergies,
+    // medications, emergency contact) as soon as the user lands on the
+    // home shell after login, so the Medical ID tab -- and the QR code it
+    // generates -- reflects real backend data rather than whatever was
+    // set at registration. Silently ignored on failure (e.g. offline);
+    // the screen just keeps showing whatever's already in local state.
+    MedicalProfileService.instance.fetch().catchError((_) {
+      return AppStateManager.instance.userProfileNotifier.value;
+    });
+  }
 
   void navigateToTab(int index) {
     setState(() {
@@ -45,6 +61,8 @@ class _AppShellState extends State<AppShell> {
               onPressed: () async {
                 Navigator.of(context).pop();
                 AppStateManager.instance.setLoggedIn(false);
+                AppStateManager.instance.resetProfile();
+                await AuthService.instance.logout();
                 if (context.mounted) {
                   Navigator.pushReplacementNamed(context, '/');
                 }

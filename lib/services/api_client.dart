@@ -81,6 +81,15 @@ class ApiClient {
     return _handleResponse(response, retryRequest: () => post(path, body, auth: auth));
   }
 
+  /// PUT with a JSON body, e.g. put('/medical-id/', {...}, auth: true).
+  /// Needed for endpoints like MedicalProfileView (RetrieveUpdateAPIView)
+  /// that only accept PUT/PATCH, not POST, for updates.
+  Future<dynamic> put(String path, Map<String, dynamic> body, {bool auth = false}) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await http.put(uri, headers: await _headers(auth: auth), body: jsonEncode(body));
+    return _handleResponse(response, retryRequest: () => put(path, body, auth: auth));
+  }
+
   Future<dynamic> _handleResponse(http.Response response, {required Future<dynamic> Function() retryRequest}) async {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (response.body.isEmpty) return null;

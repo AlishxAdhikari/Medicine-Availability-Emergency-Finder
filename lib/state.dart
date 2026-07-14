@@ -184,122 +184,34 @@ class AppStateManager {
   // Selected view mode for blood banks (List vs Map)
   final ValueNotifier<bool> isBloodBankMapViewNotifier = ValueNotifier<bool>(false);
 
-  // User Profile Notifier
+  // User Profile Notifier. Starts genuinely blank -- real values are filled
+  // in by buildProfileFromAuth() right after register/login, and then by
+  // MedicalProfileService.fetch() once the backend's /medical-id/ data
+  // loads (see AppShell.initState in home_screen.dart). There is no mock
+  // "Sarah Jenkins" placeholder anymore since the API is fully wired up.
   late final ValueNotifier<UserProfile> userProfileNotifier = ValueNotifier<UserProfile>(
     UserProfile(
-      fullName: 'Sarah Jenkins',
-      dob: '1981-04-12',
-      gender: 'Female',
-      phoneNumber: '(555) 123-4567',
-      medicalId: 'MA-882-991',
-      bloodGroup: 'O+',
-      height: '5\' 6"',
-      weight: '145',
-      address: 'Baneshwor, Kathmandu, Nepal',
-      allergies: ['Penicillin', 'Latex'],
-      medications: [
-        Medication(name: 'Metformin', dosage: '500mg', frequency: 'Twice Daily'),
-        Medication(name: 'Lisinopril', dosage: '10mg', frequency: 'Once Daily'),
-      ],
-      emergencyContacts: [
-        EmergencyContact(
-          name: 'David Jenkins',
-          relationship: 'Spouse',
-          phoneNumber: '(555) 987-6543',
-        ),
-        EmergencyContact(
-          name: 'Martha Roberts',
-          relationship: 'Mother',
-          phoneNumber: '(555) 222-3333',
-          initials: 'MR',
-        ),
-      ],
-      profilePictureUrl: null, // Default to null
+      fullName: '',
+      dob: '',
+      gender: '',
+      phoneNumber: '',
+      medicalId: '',
+      bloodGroup: '',
+      height: '',
+      weight: '',
+      address: '',
+      allergies: const [],
+      medications: const [],
+      emergencyContacts: const [],
+      profilePictureUrl: null,
     ),
   );
 
-  // Mock Pharmacies List
-  final List<Pharmacy> mockPharmacies = [
-    Pharmacy(
-      name: 'City Central Pharmacy',
-      distance: '1.2 km',
-      address: '123 Health Ave.',
-      isOpen: true,
-      items: [
-        {'name': 'Insulin', 'inStock': true},
-        {'name': 'Paracetamol', 'inStock': true},
-      ],
-    ),
-    Pharmacy(
-      name: 'MediQuick 24/7',
-      distance: '3.5 km',
-      address: '45 West Blvd.',
-      isOpen: true,
-      items: [
-        {'name': 'Insulin', 'inStock': false},
-        {'name': 'Paracetamol', 'inStock': true},
-      ],
-    ),
-    Pharmacy(
-      name: 'Patan Pharmacy Services',
-      distance: '4.8 km',
-      address: 'Lagankhel, Lalitpur',
-      isOpen: false,
-      items: [
-        {'name': 'Insulin', 'inStock': true},
-        {'name': 'Metformin', 'inStock': true},
-      ],
-    ),
-  ];
-
-  // Mock Ambulances
-  final List<Ambulance> mockAmbulances = [
-    Ambulance(
-      name: 'Red Cross Ambulance',
-      location: 'Teku, Kathmandu',
-      distance: '2.5 km',
-      isAvailable: true,
-    ),
-    Ambulance(
-      name: 'Grande Hospital Unit',
-      location: 'Dhapasi, Kathmandu',
-      distance: '4.1 km',
-      isAvailable: true,
-    ),
-    Ambulance(
-      name: 'Alka Hospital Ambulance',
-      location: 'Jawalakhel, Lalitpur',
-      distance: '6.2 km',
-      isAvailable: false,
-    ),
-  ];
-
-  // Mock Blood Banks
-  final List<BloodBank> mockBloodBanks = [
-    BloodBank(
-      name: 'Central Blood Transfusion',
-      location: 'Pradarshani Marg, Kathmandu',
-      distance: '3.2 km',
-      availability: [
-        BloodStock(type: 'A+', status: 'CRITICAL'),
-        BloodStock(type: 'O+', status: 'NORMAL'),
-        BloodStock(type: 'B-', status: 'LOW'),
-        BloodStock(type: 'AB+', status: 'NORMAL'),
-      ],
-    ),
-    BloodBank(
-      name: 'Red Cross Blood Bank',
-      location: 'Balkhu, Kathmandu',
-      distance: '4.8 km',
-      availability: [
-        BloodStock(type: 'A-', status: 'NORMAL'),
-        BloodStock(type: 'O-', status: 'CRITICAL'),
-        BloodStock(type: 'B+', status: 'NORMAL'),
-        BloodStock(type: 'AB-', status: 'LOW'),
-      ],
-    ),
-  ];
-
+  /// Called right after register/login with whatever the auth response
+  /// gives us (name, email, phone, dob, gender). Only overwrites a field
+  /// when a non-empty value is actually provided, so this can be called
+  /// multiple times (e.g. once from CreateAccountScreen, again from
+  /// LoginScreen) without clobbering data the other call already set.
   UserProfile buildProfileFromAuth({
     String? fullName,
     String? email,
@@ -310,13 +222,9 @@ class AppStateManager {
     String? bloodGroup,
     String? height,
     String? weight,
-    String? profilePictureUrl, // Added for profile picture URL
+    String? profilePictureUrl,
   }) {
     final currentProfile = userProfileNotifier.value;
-    final hasCustomProfile =
-        currentProfile.fullName != 'Sarah Jenkins' ||
-        currentProfile.phoneNumber != '(555) 123-4567' ||
-        currentProfile.medicalId != 'MA-882-991';
 
     final rawFullName = fullName?.trim();
     final rawEmail = email?.trim();
@@ -325,26 +233,28 @@ class AppStateManager {
         : currentProfile.fullName;
     final resolvedName = (rawFullName != null && rawFullName.isNotEmpty)
         ? rawFullName
-        : (hasCustomProfile ? currentProfile.fullName : fallbackName);
+        : (currentProfile.fullName.isNotEmpty ? currentProfile.fullName : fallbackName);
 
-    final resolvedEmail = rawEmail;
-    final medicalIdSeed = resolvedEmail ?? resolvedName;
-    final generatedMedicalId = medicalIdSeed.isEmpty
+    final medicalIdSeed = rawEmail?.isNotEmpty == true ? rawEmail! : resolvedName;
+    final digest = medicalIdSeed.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+    final generatedMedicalId = digest.isEmpty
         ? currentProfile.medicalId
-        : 'MA-${medicalIdSeed.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase().substring(0, medicalIdSeed.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').length > 6 ? 6 : medicalIdSeed.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').length)}';
+        : 'MA-${digest.substring(0, digest.length > 6 ? 6 : digest.length)}';
 
     return currentProfile.copyWith(
       fullName: resolvedName,
-      dob: dob ?? currentProfile.dob,
-      gender: gender ?? currentProfile.gender,
-      phoneNumber: phoneNumber ?? currentProfile.phoneNumber,
-      medicalId: medicalId?.trim().isNotEmpty == true
-          ? medicalId!.trim()
-          : (hasCustomProfile ? currentProfile.medicalId : generatedMedicalId),
-      bloodGroup: bloodGroup ?? currentProfile.bloodGroup,
-      height: height ?? currentProfile.height,
-      weight: weight ?? currentProfile.weight,
-      profilePictureUrl: profilePictureUrl ?? currentProfile.profilePictureUrl, // Updated
+      dob: (dob != null && dob.isNotEmpty) ? dob : currentProfile.dob,
+      gender: (gender != null && gender.isNotEmpty) ? gender : currentProfile.gender,
+      phoneNumber: (phoneNumber != null && phoneNumber.isNotEmpty)
+          ? phoneNumber
+          : currentProfile.phoneNumber,
+      medicalId: (medicalId != null && medicalId.trim().isNotEmpty)
+          ? medicalId.trim()
+          : (currentProfile.medicalId.isNotEmpty ? currentProfile.medicalId : generatedMedicalId),
+      bloodGroup: (bloodGroup != null && bloodGroup.isNotEmpty) ? bloodGroup : currentProfile.bloodGroup,
+      height: (height != null && height.isNotEmpty) ? height : currentProfile.height,
+      weight: (weight != null && weight.isNotEmpty) ? weight : currentProfile.weight,
+      profilePictureUrl: profilePictureUrl ?? currentProfile.profilePictureUrl,
     );
   }
   void toggleTheme() {
@@ -362,5 +272,26 @@ class AppStateManager {
 
   void updateProfile(UserProfile profile) {
     userProfileNotifier.value = profile;
+  }
+
+  /// Clears the in-memory profile back to blank. Call this on logout so a
+  /// different user signing in on the same device/session doesn't briefly
+  /// see the previous user's medical data before the new fetch completes.
+  void resetProfile() {
+    userProfileNotifier.value = UserProfile(
+      fullName: '',
+      dob: '',
+      gender: '',
+      phoneNumber: '',
+      medicalId: '',
+      bloodGroup: '',
+      height: '',
+      weight: '',
+      address: '',
+      allergies: const [],
+      medications: const [],
+      emergencyContacts: const [],
+      profilePictureUrl: null,
+    );
   }
 }

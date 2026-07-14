@@ -433,12 +433,25 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                 children: [
                   Icon(Icons.height, color: theme.colorScheme.secondary, size: 18),
                   const SizedBox(width: 4),
-                  Text(
-                    'Height',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onSurfaceVariant,
+                  RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: profile.height,
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 22,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        if (profile.height.isNotEmpty)
+                          TextSpan(
+                            text: ' cm',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ],
@@ -492,12 +505,13 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                         color: theme.colorScheme.onSurface,
                       ),
                     ),
-                    TextSpan(
-                      text: ' lbs',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                    if (profile.weight.isNotEmpty)
+                      TextSpan(
+                        text: ' kg',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
