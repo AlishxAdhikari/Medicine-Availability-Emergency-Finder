@@ -36,9 +36,14 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       if (!mounted) return;
       final user = (loginData['user'] ?? {}) as Map<String, dynamic>;
+      final firstName = (user['first_name'] as String? ?? '').trim();
+      final lastName = (user['last_name'] as String? ?? '').trim();
+      final persistedName = [firstName, lastName].where((s) => s.isNotEmpty).join(' ');
       AppStateManager.instance.updateProfile(
         AppStateManager.instance.buildProfileFromAuth(
-          fullName: user['username'] as String?,
+          // Falls back to username/email only for accounts registered
+          // before full_name started being persisted server-side.
+          fullName: persistedName.isNotEmpty ? persistedName : (user['username'] as String?),
           email: user['email'] as String?,
         ),
       );

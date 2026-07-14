@@ -15,6 +15,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
   late TextEditingController _fullNameController;
   late TextEditingController _dobController;
   late TextEditingController _phoneController;
+  late TextEditingController _addressController;
   final TextEditingController _newAllergyController = TextEditingController();
   final TextEditingController _newMedicationController = TextEditingController();
 
@@ -31,6 +32,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
     _fullNameController = TextEditingController(text: profile.fullName);
     _dobController = TextEditingController(text: profile.dob);
     _phoneController = TextEditingController(text: profile.phoneNumber);
+    _addressController = TextEditingController(text: profile.address);
     _selectedGender = profile.gender;
     
     _allergies = List.from(profile.allergies);
@@ -43,6 +45,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
     _fullNameController.dispose();
     _dobController.dispose();
     _phoneController.dispose();
+    _addressController.dispose();
     _newAllergyController.dispose();
     _newMedicationController.dispose();
     super.dispose();
@@ -113,6 +116,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
         dob: _dobController.text,
         gender: _selectedGender,
         phoneNumber: _phoneController.text,
+        address: _addressController.text,
         allergies: _allergies,
         medications: _medications,
         emergencyContacts: _contacts,
@@ -228,6 +232,15 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
                       }
                       return null;
                     },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _addressController,
+                    decoration: const InputDecoration(
+                      labelText: 'Address',
+                      hintText: 'Used on your emergency QR code',
+                    ),
+                    maxLines: 2,
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(

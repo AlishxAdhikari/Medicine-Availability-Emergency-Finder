@@ -13,17 +13,24 @@ class AuthService {
   /// POST /api/v1/auth/register/ -- creates the account only, does not log
   /// the user in. Matches RegisterView in core/views.py, which intentionally
   /// does not issue tokens itself.
+  ///
+  /// [username] must be a valid Django username (letters/digits/@/./+/-/_,
+  /// no spaces) -- callers should generate one (e.g. from the email), not
+  /// pass a raw display name. [fullName] is the person's actual name and is
+  /// stored separately on the backend so it can be shown on any device.
   Future<void> register({
     required String username,
     required String email,
     required String password,
     String? phone,
+    String? fullName,
   }) async {
     await _client.post('/auth/register/', {
       'username': username,
       'email': email,
       'password': password,
       if (phone != null) 'phone': phone,
+      if (fullName != null) 'full_name': fullName,
     });
   }
 
@@ -46,4 +53,21 @@ class AuthService {
   Future<void> logout() => _client.clearTokens();
 
   Future<bool> get isLoggedIn => _client.isLoggedIn;
+
+  /// Derives a Django-valid username (letters/digits/@/./+/-/_ only, no
+  /// spaces) from an email address, since a person's full name -- which
+  /// usually has spaces -- can never safely be sent as-is.
+  ///
+  /// Not guaranteed unique: two people signing up with the same
+  /// email-local-part on different domains (e.g. jane@gmail.com and
+  /// jane@yahoo.com) will collide, in which case registration will fail
+  /// with a normal "username already exists" error from the backend.
+  static String generateUsername(String email) {
+    final localPart = email.contains('@') ? email.split('@').first : email;
+    final sanitized = localPart.toLowerCase().replaceAll(RegExp(r'[^a-z0-9.+_-]'), '');
+    if (sanitized.isNotEmpty) return sanitized;
+    // Fallback for an email with no usable characters before the @ --
+    // practically shouldn't happen given the form's email validation.
+    return 'user${DateTime.now().millisecondsSinceEpoch}';
+  }
 }

@@ -41,13 +41,17 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       final email = _emailController.text.trim();
       final phone = _phoneController.text.trim();
       final password = _passwordController.text;
-      final username = fullName.isNotEmpty ? fullName : email;
+      // Django's username field rejects spaces, so it can never safely be
+      // the person's raw full name -- derive a valid one from the email
+      // instead, and send the real name separately so it's persisted.
+      final username = AuthService.generateUsername(email);
 
       await AuthService.instance.register(
         username: username,
         email: email,
         password: password,
         phone: phone,
+        fullName: fullName,
       );
       await AuthService.instance.login(username: username, password: password);
 

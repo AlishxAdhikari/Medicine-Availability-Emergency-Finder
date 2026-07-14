@@ -49,6 +49,7 @@ class UserProfile {
   final String bloodGroup;
   final String height;
   final String weight;
+  final String address;
   final List<String> allergies;
   final List<Medication> medications;
   final List<EmergencyContact> emergencyContacts;
@@ -63,6 +64,7 @@ class UserProfile {
     required this.bloodGroup,
     required this.height,
     required this.weight,
+    this.address = '',
     required this.allergies,
     required this.medications,
     required this.emergencyContacts,
@@ -78,6 +80,7 @@ class UserProfile {
     String? bloodGroup,
     String? height,
     String? weight,
+    String? address,
     List<String>? allergies,
     List<Medication>? medications,
     List<EmergencyContact>? emergencyContacts,
@@ -92,6 +95,7 @@ class UserProfile {
       bloodGroup: bloodGroup ?? this.bloodGroup,
       height: height ?? this.height,
       weight: weight ?? this.weight,
+      address: address ?? this.address,
       allergies: allergies ?? this.allergies,
       medications: medications ?? this.medications,
       emergencyContacts: emergencyContacts ?? this.emergencyContacts,
@@ -191,6 +195,7 @@ class AppStateManager {
       bloodGroup: 'O+',
       height: '5\' 6"',
       weight: '145',
+      address: 'Baneshwor, Kathmandu, Nepal',
       allergies: ['Penicillin', 'Latex'],
       medications: [
         Medication(name: 'Metformin', dosage: '500mg', frequency: 'Twice Daily'),
