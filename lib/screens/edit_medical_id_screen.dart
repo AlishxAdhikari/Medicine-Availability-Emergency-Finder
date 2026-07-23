@@ -285,7 +285,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: _selectedBloodGroup,
+                    initialValue: _selectedBloodGroup,
                     decoration: const InputDecoration(
                       labelText: 'Blood Group',
                     ),
@@ -334,7 +334,7 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: _selectedGender,
+                    initialValue: _selectedGender,
                     decoration: const InputDecoration(
                       labelText: 'Gender',
                     ),

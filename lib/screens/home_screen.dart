@@ -178,7 +178,7 @@ class _AppShellState extends State<AppShell> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withOpacity(0.8),
+        backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withValues(alpha: 0.8),
         elevation: 0,
         leading: Builder(
           builder: (context) => IconButton(
@@ -224,7 +224,7 @@ class _AppShellState extends State<AppShell> {
         type: BottomNavigationBarType.fixed,
         backgroundColor: isDark ? const Color(0xFF191C20) : Colors.white,
         selectedItemColor: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-        unselectedItemColor: theme.colorScheme.onSurfaceVariant.withOpacity(0.6),
+        unselectedItemColor: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
         unselectedLabelStyle: const TextStyle(fontSize: 10),
         items: const [
@@ -273,7 +273,7 @@ class HomeDashboardTab extends StatelessWidget {
                   color: isDark ? const Color(0xFF1D2024) : const Color(0xFFF1F3FC),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
                   ),
                 ),
                 padding: const EdgeInsets.all(20.0),
@@ -367,9 +367,9 @@ class HomeDashboardTab extends StatelessWidget {
                     context,
                     icon: Icons.emergency,
                     label: 'Emergency Services',
-                    color: const Color(0xFFFFDAD6).withOpacity(0.3),
+                    color: const Color(0xFFFFDAD6).withValues(alpha: 0.3),
                     iconColor: const Color(0xFFBA1A1A),
-                    borderColor: const Color(0xFFBA1A1A).withOpacity(0.3),
+                    borderColor: const Color(0xFFBA1A1A).withValues(alpha: 0.3),
                     onTap: () {
                       final shell = context.findAncestorStateOfType<_AppShellState>();
                       shell?.navigateToTab(2);
@@ -525,12 +525,12 @@ class HomeDashboardTab extends StatelessWidget {
           border: Border.all(
             color: borderColor ??
                 (isDark
-                    ? const Color(0xFF44474E).withOpacity(0.3)
-                    : theme.colorScheme.outlineVariant.withOpacity(0.3)),
+                    ? const Color(0xFF44474E).withValues(alpha: 0.3)
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.02),
+              color: Colors.black.withValues(alpha: 0.02),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -544,7 +544,7 @@ class HomeDashboardTab extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.12),
+                color: iconColor.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -584,7 +584,7 @@ class HomeDashboardTab extends StatelessWidget {
           color: isDark ? const Color(0xFF1D2024) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
           ),
         ),
         padding: const EdgeInsets.all(16),
@@ -633,7 +633,7 @@ class HomeDashboardTab extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: isDark
                         ? const Color(0xFF282A2F)
-                        : theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -667,7 +667,7 @@ class HomeDashboardTab extends StatelessWidget {
                             : const Color(0xFFF1F3FC),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: statusColor.withOpacity(0.2),
+                          color: statusColor.withValues(alpha: 0.2),
                         ),
                       ),
                       child: Column(

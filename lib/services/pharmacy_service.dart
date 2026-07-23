@@ -32,7 +32,7 @@ class PharmacyService {
       if (query.isNotEmpty) 'search': query,
       'lat': lat ?? _fallbackLat,
       'lng': lng ?? _fallbackLng,
-      if (radiusKm != null) 'radius_km': radiusKm,
+      'radius_km': ?radiusKm,
     };
 
     final data = await _client.get('/pharmacies/', query: params);

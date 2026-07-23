@@ -29,8 +29,8 @@ class AuthService {
       'username': username,
       'email': email,
       'password': password,
-      if (phone != null) 'phone': phone,
-      if (fullName != null) 'full_name': fullName,
+      'phone': ?phone,
+      'full_name': ?fullName,
     });
   }
 

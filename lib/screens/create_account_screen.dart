@@ -96,7 +96,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       builder: (context, themeMode, _) {
         return Scaffold(
           appBar: AppBar(
-            backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withOpacity(0.8),
+            backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withValues(alpha: 0.8),
             elevation: 0,
             leadingWidth: 150,
             leading: Row(
@@ -140,7 +140,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   width: 300,
                   height: 300,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withOpacity(0.08),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.08),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -152,7 +152,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   width: 250,
                   height: 250,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.tertiary.withOpacity(0.05),
+                    color: theme.colorScheme.tertiary.withValues(alpha: 0.05),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -168,12 +168,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isDark
-                            ? const Color(0xFF44474E).withOpacity(0.3)
-                            : theme.colorScheme.outlineVariant.withOpacity(0.3),
+                            ? const Color(0xFF44474E).withValues(alpha: 0.3)
+                            : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+                          color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
                           blurRadius: 20,
                           offset: const Offset(0, 4),
                         ),
@@ -196,12 +196,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                                   decoration: BoxDecoration(
                                     color: isDark
                                         ? const Color(0xFF282A2F)
-                                        : theme.colorScheme.primaryContainer.withOpacity(0.2),
+                                        : theme.colorScheme.primaryContainer.withValues(alpha: 0.2),
                                     shape: BoxShape.circle,
                                     border: Border.all(
                                       color: isDark
                                           ? Colors.transparent
-                                          : theme.colorScheme.primary.withOpacity(0.2),
+                                          : theme.colorScheme.primary.withValues(alpha: 0.2),
                                     ),
                                   ),
                                   child: Icon(
@@ -267,7 +267,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
 
                           // Gender Selection
                           DropdownButtonFormField<String>(
-                            value: _selectedGender,
+                            initialValue: _selectedGender,
                             hint: const Text('Select Gender'),
                             decoration: const InputDecoration(
                               prefixIcon: Icon(Icons.people),

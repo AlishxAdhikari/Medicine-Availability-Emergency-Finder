@@ -42,9 +42,9 @@ class EmergencyService {
   }) async {
     final params = <String, dynamic>{
       if (district != null && district.isNotEmpty) 'district': district,
-      if (has24Hour != null) 'is_24_hour': has24Hour,
-      if (hasIcu != null) 'has_icu': hasIcu,
-      if (hasOxygen != null) 'has_oxygen': hasOxygen,
+      'is_24_hour': ?has24Hour,
+      'has_icu': ?hasIcu,
+      'has_oxygen': ?hasOxygen,
     };
 
     final data = await _client.get('/ambulances/', query: params);

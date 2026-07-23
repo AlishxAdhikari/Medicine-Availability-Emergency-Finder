@@ -130,7 +130,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: theme.colorScheme.primaryContainer.withOpacity(0.5),
+                              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
                               width: 2,
                             ),
                           ),
@@ -216,7 +216,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                         Navigator.pushNamed(context, '/edit_medical_id');
                       },
                       style: IconButton.styleFrom(
-                        backgroundColor: theme.colorScheme.primaryContainer.withOpacity(0.1),
+                        backgroundColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
                         foregroundColor: theme.colorScheme.primary,
                       ),
                     ),
@@ -287,7 +287,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
         color: isDark ? const Color(0xFF1D2024) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
         ),
         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
       ),
@@ -317,7 +317,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withOpacity(0.5),
+                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
                 ),
               ),
               child: QrImageView(
@@ -378,10 +378,10 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
         // Blood Group
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFFFDAD6).withOpacity(0.3),
+            color: const Color(0xFFFFDAD6).withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: const Color(0xFFBA1A1A).withOpacity(0.2),
+              color: const Color(0xFFBA1A1A).withValues(alpha: 0.2),
             ),
           ),
           padding: const EdgeInsets.all(12),
@@ -421,7 +421,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
             color: isDark ? const Color(0xFF1D2024) : Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
             ),
           ),
           padding: const EdgeInsets.all(12),
@@ -472,7 +472,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
             color: isDark ? const Color(0xFF1D2024) : Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
             ),
           ),
           padding: const EdgeInsets.all(12),
@@ -531,7 +531,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
         color: isDark ? const Color(0xFF1D2024) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
         ),
       ),
       padding: const EdgeInsets.all(16.0),
@@ -564,10 +564,10 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFBA1A1A).withOpacity(0.1),
+                    color: const Color(0xFFBA1A1A).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(99),
                     border: Border.all(
-                      color: const Color(0xFFBA1A1A).withOpacity(0.2),
+                      color: const Color(0xFFBA1A1A).withValues(alpha: 0.2),
                     ),
                   ),
                   child: Text(
@@ -595,7 +595,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
         color: isDark ? const Color(0xFF1D2024) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
         ),
       ),
       padding: const EdgeInsets.all(16.0),
@@ -627,7 +627,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                   decoration: BoxDecoration(
                     border: Border(
                       bottom: BorderSide(
-                        color: theme.colorScheme.outlineVariant.withOpacity(0.2),
+                        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
                       ),
                     ),
                   ),
@@ -678,7 +678,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
         color: isDark ? const Color(0xFF1D2024) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
         ),
       ),
       padding: const EdgeInsets.all(16.0),
@@ -713,7 +713,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                     color: isDark ? const Color(0xFF15181C) : const Color(0xFFF9F9FF),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: theme.colorScheme.outlineVariant.withOpacity(0.2),
+                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
                     ),
                   ),
                   child: Row(
