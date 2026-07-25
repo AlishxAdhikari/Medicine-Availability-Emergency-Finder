@@ -1,3 +1,4 @@
+from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
 from django.db.models import F
 from rest_framework import status
@@ -16,8 +17,17 @@ class StockSyncView(APIView):
     permission_classes = []
 
     def post(self, request):
-        if not request.user or not hasattr(request.user, 'pk'):
-            return Response({'detail': 'Authentication credentials were not provided.'}, 
+        # Bug fix: the old check `not request.user or not hasattr(request.user, 'pk')`
+        # never actually caught a missing/invalid key. When POSKeyAuthentication
+        # doesn't find a key, it returns None and DRF falls back to
+        # AnonymousUser -- which is truthy and DOES have a `.pk` attribute
+        # (it's just None), so the old check let it through. The request then
+        # crashed further down trying to use AnonymousUser as if it were a
+        # Pharmacy foreign key. Checking for AnonymousUser directly (and for
+        # None, just in case) is what actually rejects an unauthenticated
+        # request here.
+        if request.user is None or isinstance(request.user, AnonymousUser):
+            return Response({'detail': 'Authentication credentials were not provided.'},
                           status=status.HTTP_401_UNAUTHORIZED)
 
         serializer = StockSyncSerializer(data=request.data)
