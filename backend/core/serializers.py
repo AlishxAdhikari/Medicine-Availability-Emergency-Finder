@@ -43,6 +43,21 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('A user with this email already exists.')
         return value
 
+    def validate_phone(self, value):
+        """MedicalProfile.phone_number has no DB-level unique constraint, and
+        LoginIdentifierView resolves a phone-based login with .first() on a
+        match -- so without this check, two accounts could silently share a
+        phone number, and whichever registered second would be permanently
+        unable to log in via phone (the lookup always resolves to the first
+        match, so the second account's own correct password would just
+        appear to fail). Blocking the duplicate here, at registration, is
+        what prevents that ambiguity from being created in the first place.
+        """
+        value = value.strip()
+        if value and MedicalProfile.objects.filter(phone_number__iexact=value).exists():
+            raise serializers.ValidationError('A user with this phone number already exists.')
+        return value
+
     def create(self, validated_data):
         phone = validated_data.pop('phone', '').strip()
         full_name = validated_data.pop('full_name', '').strip()
