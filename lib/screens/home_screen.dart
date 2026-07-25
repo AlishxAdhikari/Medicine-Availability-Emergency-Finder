@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_service.dart';
 import '../services/medical_profile_service.dart';
 import '../widgets/initials_avatar.dart';
 import 'pharmacy_search_screen.dart';
 import 'emergency_screen.dart';
 import 'medical_id_screen.dart';
+import '../services/biometric_service.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -58,18 +60,32 @@ class _AppShellState extends State<AppShell> {
               child: const Text('Cancel'),
             ),
             TextButton(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                AppStateManager.instance.setLoggedIn(false);
+            onPressed: () async {
+              Navigator.of(context).pop();
+
+              final biometricOn = await BiometricService.instance.isEnabled;
+
+              if (biometricOn) {
+                final p = AppStateManager.instance.userProfileNotifier.value;
+                await BiometricService.instance.saveUserSnapshot(profileToSnapshot(p));
+              }
+
+              await AuthService.instance.logout(keepBiometricSession: biometricOn);
+
+              AppStateManager.instance.setLoggedIn(false);
+              if (!biometricOn) {
                 AppStateManager.instance.resetProfile();
-                await AuthService.instance.logout();
-                if (context.mounted) {
-                  Navigator.pushReplacementNamed(context, '/');
-                }
-              },
+              }
+
+              if (context.mounted) {
+                Navigator.pushReplacementNamed(context, '/');
+              }
+            },
+            
               style: TextButton.styleFrom(
                 foregroundColor: theme.colorScheme.error,
               ),
+
               child: const Text('Logout'),
             ),
           ],

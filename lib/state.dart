@@ -295,3 +295,74 @@ class AppStateManager {
     );
   }
 }
+Map<String, dynamic> profileToSnapshot(UserProfile p) {
+  return {
+    'fullName': p.fullName,
+    'dob': p.dob,
+    'gender': p.gender,
+    'phoneNumber': p.phoneNumber,
+    'medicalId': p.medicalId,
+    'bloodGroup': p.bloodGroup,
+    'height': p.height,
+    'weight': p.weight,
+    'address': p.address,
+    'allergies': p.allergies,
+    'medications': p.medications
+        .map((m) => {
+              'name': m.name,
+              'dosage': m.dosage,
+              'frequency': m.frequency,
+            })
+        .toList(),
+    'emergencyContacts': p.emergencyContacts
+        .map((c) => {
+              'name': c.name,
+              'relationship': c.relationship,
+              'phoneNumber': c.phoneNumber,
+              'initials': c.initials,
+            })
+        .toList(),
+    'profilePictureUrl': p.profilePictureUrl,
+  };
+}
+
+UserProfile profileFromSnapshot(Map<String, dynamic> s) {
+  final meds = (s['medications'] as List? ?? [])
+      .map((m) {
+        final map = Map<String, dynamic>.from(m as Map);
+        return Medication(
+          name: map['name'] as String? ?? '',
+          dosage: map['dosage'] as String? ?? '',
+          frequency: map['frequency'] as String? ?? '',
+        );
+      })
+      .toList();
+
+  final contacts = (s['emergencyContacts'] as List? ?? [])
+      .map((c) {
+        final map = Map<String, dynamic>.from(c as Map);
+        return EmergencyContact(
+          name: map['name'] as String? ?? '',
+          relationship: map['relationship'] as String? ?? '',
+          phoneNumber: map['phoneNumber'] as String? ?? '',
+          initials: map['initials'] as String?,
+        );
+      })
+      .toList();
+
+  return UserProfile(
+    fullName: s['fullName'] as String? ?? '',
+    dob: s['dob'] as String? ?? '',
+    gender: s['gender'] as String? ?? '',
+    phoneNumber: s['phoneNumber'] as String? ?? '',
+    medicalId: s['medicalId'] as String? ?? '',
+    bloodGroup: s['bloodGroup'] as String? ?? '',
+    height: s['height'] as String? ?? '',
+    weight: s['weight'] as String? ?? '',
+    address: s['address'] as String? ?? '',
+    allergies: (s['allergies'] as List? ?? []).map((e) => e.toString()).toList(),
+    medications: meds,
+    emergencyContacts: contacts,
+    profilePictureUrl: s['profilePictureUrl'] as String?,
+  );
+}

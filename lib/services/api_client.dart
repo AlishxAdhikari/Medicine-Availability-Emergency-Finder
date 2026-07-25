@@ -38,9 +38,10 @@ class ApiClient {
   /// device (use your machine's LAN IP instead).
   String get baseUrl {
     if (kIsWeb) return 'http://127.0.0.1:8000/api/v1';
-    if (Platform.isAndroid) return 'http://10.0.2.2:8000/api/v1';
+    if (Platform.isAndroid) return 'http://192.168.1.64:8000/api/v1';
     return 'http://127.0.0.1:8000/api/v1';
   }
+  
 
   Future<void> saveTokens({required String access, required String refresh}) async {
     await _storage.write(key: _accessKey, value: access);
@@ -53,6 +54,9 @@ class ApiClient {
   Future<void> clearTokens() async {
     await _storage.delete(key: _accessKey);
     await _storage.delete(key: _refreshKey);
+  }
+  Future<void> clearAccessTokenOnly() async {
+    await _storage.delete(key: _accessKey);
   }
 
   Future<bool> get isLoggedIn async => (await accessToken) != null;

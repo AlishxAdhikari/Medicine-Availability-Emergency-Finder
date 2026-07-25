@@ -49,8 +49,16 @@ class AuthService {
     );
     return loginData;
   }
+  
+  Future<void> logout({bool keepBiometricSession = false}) async {
+    if (keepBiometricSession) {
+      await _client.clearAccessTokenOnly();
+    } else {
+      await _client.clearTokens();
+    }
+  }
 
-  Future<void> logout() => _client.clearTokens();
+  
 
   Future<bool> get isLoggedIn => _client.isLoggedIn;
 

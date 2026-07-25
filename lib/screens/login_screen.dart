@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
+import '../services/medical_profile_service.dart';
 import '../state.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -24,12 +25,29 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final success = await BiometricService.instance.loginWithBiometrics();
       if (!mounted) return;
+
       if (success) {
+        final snapshot = await BiometricService.instance.getUserSnapshot();
+        if (snapshot != null) {
+          AppStateManager.instance.updateProfile(profileFromSnapshot(snapshot));
+        }
+
+        try {
+          await MedicalProfileService.instance.fetch();
+        } catch (_) {}
+
+        final p = AppStateManager.instance.userProfileNotifier.value;
+        await BiometricService.instance.saveUserSnapshot(profileToSnapshot(p));
+
         AppStateManager.instance.setLoggedIn(true);
         Navigator.pushReplacementNamed(context, '/home');
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Biometric login failed. Make sure you enabled it during signup and this device has a fingerprint enrolled.')),
+          const SnackBar(
+            content: Text(
+              'Biometric login failed. Make sure you enabled it during signup and this device has a fingerprint enrolled.',
+            ),
+          ),
         );
       }
     } finally {
@@ -61,12 +79,22 @@ class _LoginScreenState extends State<LoginScreen> {
       final persistedName = [firstName, lastName].where((s) => s.isNotEmpty).join(' ');
       AppStateManager.instance.updateProfile(
         AppStateManager.instance.buildProfileFromAuth(
-          // Falls back to username/email only for accounts registered
-          // before full_name started being persisted server-side.
-          fullName: persistedName.isNotEmpty ? persistedName : (user['username'] as String?),
-          email: user['email'] as String?,
+          // keep your existing arguments here unchanged
+          fullName: persistedName.isNotEmpty ? persistedName : null,
+          email: user['email'] as String? ?? identifier,
+          phoneNumber: null,
         ),
       );
+
+      try {
+        await MedicalProfileService.instance.fetch();
+      } catch (_) {}
+
+      if (await BiometricService.instance.isEnabled) {
+        final p = AppStateManager.instance.userProfileNotifier.value;
+        await BiometricService.instance.saveUserSnapshot(profileToSnapshot(p));
+      }
+
       AppStateManager.instance.setLoggedIn(true);
       Navigator.pushReplacementNamed(context, '/home');
     } on ApiException catch (e) {

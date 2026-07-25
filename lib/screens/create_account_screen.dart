@@ -60,27 +60,34 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       // Must come after login() so a refresh token is already saved --
       // biometric login works by unlocking that stored token, not by
       // storing any fingerprint data anywhere.
-      if (_enableBiometricLogin) {
-        final enrolled = await BiometricService.instance.enroll();
-        if (!enrolled && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Account created, but biometric enrollment failed. You can try again from the login screen.')),
-          );
-        }
-      }
-
-      if (!mounted) return;
+     if (!mounted) return;
 
       final newProfile = AppStateManager.instance.buildProfileFromAuth(
         fullName: fullName,
         email: email,
         phoneNumber: phone,
         dob: _dobController.text.trim(),
-        gender: _selectedGender, // Pass selected gender
+        gender: _selectedGender,
       );
       AppStateManager.instance.updateProfile(newProfile);
-      AppStateManager.instance.setLoggedIn(true);
 
+      // Enroll AFTER profile exists so full user snapshot is saved
+      if (_enableBiometricLogin) {
+        final enrolled = await BiometricService.instance.enroll(
+          userSnapshot: profileToSnapshot(newProfile),
+        );
+        if (!enrolled && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Account created, but biometric enrollment failed. You can try again from the login screen.',
+              ),
+            ),
+          );
+        }
+      }
+
+      AppStateManager.instance.setLoggedIn(true);
       Navigator.pushReplacementNamed(context, '/home');
     } on ApiException catch (e) {
       if (!mounted) return;

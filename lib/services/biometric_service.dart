@@ -1,13 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'api_client.dart';
 
-/// Handles biometric login. Important: this never touches raw fingerprint
-/// data -- that stays inside the phone's secure hardware. We only ask the
-/// OS "did the fingerprint/face check pass?" (true/false), and on true we
-/// unlock the JWT refresh token that's already saved in secure storage
-/// from a normal password login, then use it to get a fresh access token.
 class BiometricService {
   BiometricService._internal();
   static final BiometricService instance = BiometricService._internal();
@@ -16,13 +12,9 @@ class BiometricService {
   final _client = ApiClient.instance;
   static const _storage = FlutterSecureStorage();
   static const _enabledKey = 'biometric_login_enabled';
+  static const _userSnapshotKey = 'biometric_user_snapshot';
 
-  /// True if this device has fingerprint/face hardware AND at least one
-  /// fingerprint/face is enrolled in the device's own settings.
   Future<bool> isDeviceCapable() async {
-    // local_auth has no web implementation -- browsers have no API for
-    // this. Short-circuit instead of letting every check below fail
-    // silently with a confusing "biometric login failed" message.
     if (kIsWeb) return false;
     try {
       final supported = await _localAuth.isDeviceSupported();
@@ -35,19 +27,15 @@ class BiometricService {
     }
   }
 
-  /// Whether the current user has previously opted in on this device.
   Future<bool> get isEnabled async =>
       (await _storage.read(key: _enabledKey)) == 'true';
 
-  /// Call after a successful password login/registration to turn biometric
-  /// login on for this device. Prompts the fingerprint scan once to confirm
-  /// it works, then flags this device as enrolled.
-  Future<bool> enroll() async {
+  Future<bool> enroll({Map<String, dynamic>? userSnapshot}) async {
     final capable = await isDeviceCapable();
     if (!capable) return false;
 
     final refresh = await _client.refreshToken;
-    if (refresh == null) return false; // must already be logged in
+    if (refresh == null) return false;
 
     final confirmed = await _authenticate(
       reason: 'Confirm your fingerprint to enable biometric login',
@@ -55,27 +43,36 @@ class BiometricService {
     if (!confirmed) return false;
 
     await _storage.write(key: _enabledKey, value: 'true');
+    if (userSnapshot != null) {
+      await saveUserSnapshot(userSnapshot);
+    }
     return true;
   }
 
-  /// Turns biometric login back off on this device. Does not log the user
-  /// out or touch their password.
-  Future<void> disable() async {
-    await _storage.delete(key: _enabledKey);
+  Future<void> saveUserSnapshot(Map<String, dynamic> snapshot) async {
+    await _storage.write(key: _userSnapshotKey, value: jsonEncode(snapshot));
   }
 
-  /// The "Biometric Login" button action. Returns true if the user is now
-  /// logged in.
+  Future<Map<String, dynamic>?> getUserSnapshot() async {
+    final raw = await _storage.read(key: _userSnapshotKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> disable() async {
+    await _storage.delete(key: _enabledKey);
+    await _storage.delete(key: _userSnapshotKey);
+  }
+
   Future<bool> loginWithBiometrics() async {
-    // Gate on the opt-in toggle -- without this check, biometric login
-    // would silently work for anyone with a stored refresh token even if
-    // they never turned the setting on during signup.
     if (!await isEnabled) return false;
 
     final refresh = await _client.refreshToken;
     if (refresh == null) {
-      // Token was cleared (e.g. explicit logout elsewhere) -- biometrics
-      // has nothing left to unlock, so fall back to password login.
       await disable();
       return false;
     }
@@ -98,7 +95,6 @@ class BiometricService {
         ),
       );
     } catch (_) {
-      // Hardware error, user cancelled, lockout from too many attempts, etc.
       return false;
     }
   }

@@ -3,6 +3,7 @@ import '../state.dart';
 import '../services/api_client.dart';
 import '../services/medical_profile_service.dart';
 import '../widgets/initials_avatar.dart';
+import '../services/biometric_service.dart';
 
 class EditMedicalIdScreen extends StatefulWidget {
   const EditMedicalIdScreen({super.key});
@@ -148,6 +149,12 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
       // MedicalProfile model doesn't have those fields.
       await MedicalProfileService.instance.save(updatedProfile);
       AppStateManager.instance.updateProfile(updatedProfile);
+
+      if (await BiometricService.instance.isEnabled) {
+        await BiometricService.instance.saveUserSnapshot(
+          profileToSnapshot(updatedProfile),
+        );
+      }
 
       if (!mounted) return;
       Navigator.pop(context);
