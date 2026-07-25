@@ -3,6 +3,8 @@ import secrets
 
 from pharmacy.models import Pharmacy, Medicine
 
+def generate_pos_key():
+    return secrets.token_hex(32)
 
 class POSIntegrationKey(models.Model):
     """Stores API keys for pharmacies' POS systems to authenticate sync requests."""
@@ -11,7 +13,7 @@ class POSIntegrationKey(models.Model):
         on_delete=models.CASCADE,
         related_name='pos_integration'
     )
-    key = models.CharField(max_length=64, unique=True, default=secrets.token_hex(32))
+    key = models.CharField(max_length=64, unique=True, default=generate_pos_key)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
