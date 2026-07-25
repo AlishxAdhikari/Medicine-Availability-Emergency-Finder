@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_service.dart';
 import '../state.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -16,6 +17,25 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _biometricLoading = false;
+
+  Future<void> _handleBiometricLogin() async {
+    setState(() => _biometricLoading = true);
+    try {
+      final success = await BiometricService.instance.loginWithBiometrics();
+      if (!mounted) return;
+      if (success) {
+        AppStateManager.instance.setLoggedIn(true);
+        Navigator.pushReplacementNamed(context, '/home');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Biometric login failed. Make sure you enabled it during signup and this device has a fingerprint enrolled.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _biometricLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -355,10 +375,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           // Biometrics
                           OutlinedButton(
-                            onPressed: () {
-                              AppStateManager.instance.setLoggedIn(true);
-                              Navigator.pushReplacementNamed(context, '/home');
-                            },
+                            onPressed: _biometricLoading ? null : _handleBiometricLogin,
                             style: OutlinedButton.styleFrom(
                               side: BorderSide(
                                 color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
@@ -368,11 +385,20 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
-                                  Icons.fingerprint,
-                                  size: 32,
-                                  color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
-                                ),
+                                _biometricLoading
+                                    ? SizedBox(
+                                        height: 32,
+                                        width: 32,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.fingerprint,
+                                        size: 32,
+                                        color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
+                                      ),
                                 const SizedBox(height: 4),
                                 Text(
                                   'Biometric Login',

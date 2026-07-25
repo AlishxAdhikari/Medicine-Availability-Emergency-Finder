@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_service.dart';
 import '../state.dart';
 
 class CreateAccountScreen extends StatefulWidget {
@@ -21,6 +22,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   String? _selectedGender;
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _enableBiometricLogin = false; // the toggle's value
 
   @override
   void dispose() {
@@ -54,6 +56,18 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         fullName: fullName,
       );
       await AuthService.instance.login(username: username, password: password);
+
+      // Must come after login() so a refresh token is already saved --
+      // biometric login works by unlocking that stored token, not by
+      // storing any fingerprint data anywhere.
+      if (_enableBiometricLogin) {
+        final enrolled = await BiometricService.instance.enroll();
+        if (!enrolled && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Account created, but biometric enrollment failed. You can try again from the login screen.')),
+          );
+        }
+      }
 
       if (!mounted) return;
 
@@ -355,6 +369,25 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                               }
                               return null;
                             },
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Fingerprint enrollment toggle
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: _enableBiometricLogin,
+                            onChanged: (value) => setState(() => _enableBiometricLogin = value),
+                            secondary: Icon(
+                              Icons.fingerprint,
+                              color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
+                            ),
+                            title: const Text('Enable biometric login'),
+                            subtitle: Text(
+                              'Use your fingerprint to sign in next time',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 16),
 

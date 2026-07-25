@@ -125,7 +125,10 @@ class ApiClient {
     }
     return null;
   }
-
+  /// Public wrapper so BiometricService can trigger a silent token refresh
+  /// after the OS fingerprint/Face ID check passes.
+  Future<bool> refreshAccessToken() => _tryRefresh();
+  
   Future<bool> _tryRefresh() async {
     final refresh = await refreshToken;
     if (refresh == null) return false;
