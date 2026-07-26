@@ -27,17 +27,31 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
   String _buildEmergencyPayload(UserProfile profile) {
     final buffer = StringBuffer()
       ..writeln('MEDALERT EMERGENCY MEDICAL ID')
-      ..writeln('--------------------------------')
-      ..writeln('Name: ${profile.fullName}')
-      ..writeln('Blood Group: ${profile.bloodGroup.isNotEmpty ? profile.bloodGroup : 'Not specified'}')
-      ..writeln('DOB: ${profile.dob}');
+      ..writeln('--------------------------------');
 
+    if (profile.medicalId.isNotEmpty) {
+      buffer.writeln('Medical ID: ${profile.medicalId}');
+    }
+
+    buffer
+      ..writeln('Name: ${profile.fullName}')
+      ..writeln('Gender: ${profile.gender.isNotEmpty ? profile.gender : 'Not specified'}')
+      ..writeln('DOB: ${profile.dob}')
+      ..writeln('Phone: ${profile.phoneNumber.isNotEmpty ? profile.phoneNumber : 'Not specified'}')
+      ..writeln('Blood Group: ${profile.bloodGroup.isNotEmpty ? profile.bloodGroup : 'Not specified'}');
+
+    if (profile.height.trim().isNotEmpty) {
+      buffer.writeln('Height: ${profile.height} cm');
+    }
+    if (profile.weight.trim().isNotEmpty) {
+      buffer.writeln('Weight: ${profile.weight} kg');
+    }
     if (profile.address.trim().isNotEmpty) {
       buffer.writeln('Address: ${profile.address}');
     }
 
     buffer.writeln(
-      'Allergies: ${profile.allergies.isEmpty ? 'None reported' : profile.allergies.join(', ')}',
+      'SEVERE ALLERGIES: ${profile.allergies.isEmpty ? 'None reported' : profile.allergies.join(', ')}',
     );
 
     if (profile.medications.isNotEmpty) {
@@ -331,7 +345,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Contains name, blood group, address, allergies & emergency contacts',
+            'Contains complete Medical ID profile: ID, vitals, severe allergies, medications & emergency contacts',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
               fontStyle: FontStyle.italic,

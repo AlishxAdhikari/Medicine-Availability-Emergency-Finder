@@ -42,6 +42,7 @@ dependencies:
   qr_flutter: ^4.1.0
   share_plus: ^10.1.2
   cross_file: ^0.3.4+2
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

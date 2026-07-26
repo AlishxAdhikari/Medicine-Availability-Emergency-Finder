@@ -52,10 +52,11 @@ backend/
 │   ├── urls.py
 │   └── admin.py
 │
-└── sync/                        # Reserved for real-time pharmacy stock sync (planned)
-    ├── models.py                # Not yet implemented
-    ├── views.py                 # Not yet implemented
-    └── admin.py
+└── sync/                        # Real-time pharmacy stock sync & WebSocket push
+    ├── models.py                # StockTransaction audit log
+    ├── views.py                 # POS stock ingestion endpoint
+    ├── consumers.py             # StockAlertConsumer (Channels WebSocket)
+    └── routing.py               # WebSocket URL routing
 ```
 
 ## Setup

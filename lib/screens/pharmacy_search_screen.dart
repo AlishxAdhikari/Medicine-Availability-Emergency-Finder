@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/api_client.dart';
+import '../services/gemini_prescription_service.dart';
 import '../services/pharmacy_service.dart';
 import '../services/stock_alert_service.dart';
 import '../state.dart';
@@ -39,6 +42,299 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
       _debounce = Timer(const Duration(milliseconds: 500), _fetchPharmacies);
     });
     _fetchPharmacies();
+  }
+
+  Future<void> _openPrescriptionScanner() async {
+    final apiKey = await GeminiPrescriptionService.instance.getApiKey();
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+
+        return Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Prescription Photo Scanner',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              Text(
+                'Scan a prescription to extract and search exact medicine names.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Take Photo with Camera'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndProcessImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Choose from Gallery'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndProcessImage(ImageSource.gallery);
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: Icon(
+                  apiKey == null || apiKey.isEmpty ? Icons.key_off : Icons.key,
+                  color: apiKey == null || apiKey.isEmpty
+                      ? theme.colorScheme.error
+                      : const Color(0xFF00897B),
+                ),
+                title: Text(apiKey == null || apiKey.isEmpty
+                    ? 'Set Free Gemini API Key'
+                    : 'Change Gemini API Key'),
+                subtitle: Text(
+                  apiKey == null || apiKey.isEmpty
+                      ? 'Required for prescription AI extraction'
+                      : 'Key configured securely',
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showApiKeyDialog();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showApiKeyDialog() async {
+    final currentKey = await GeminiPrescriptionService.instance.getApiKey() ?? '';
+    final controller = TextEditingController(text: currentKey);
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Google Gemini API Key'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter your free Gemini API key from Google AI Studio (aistudio.google.com) to analyze prescription photos.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'API Key',
+                  hintText: 'AIzaSy...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final text = controller.text.trim();
+                await GeminiPrescriptionService.instance.setApiKey(text);
+                if (ctx.mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Gemini API key saved successfully'),
+                      backgroundColor: Color(0xFF00897B),
+                    ),
+                  );
+                }
+              },
+              child: const Text('Save Key'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndProcessImage(ImageSource source) async {
+    final apiKey = await GeminiPrescriptionService.instance.getApiKey();
+    if (apiKey == null || apiKey.trim().isEmpty) {
+      _showApiKeyDialog();
+      return;
+    }
+
+    try {
+      final picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 85,
+      );
+
+      if (image == null) return;
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 20),
+              Expanded(
+                child: Text(
+                  'Analyzing prescription with Gemini AI...',
+                  style: TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      final bytes = await image.readAsBytes();
+      final String mimeType = image.mimeType ?? 'image/jpeg';
+
+      final medicines = await GeminiPrescriptionService.instance.analyzePrescriptionImage(
+        bytes,
+        mimeType: mimeType,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+
+      if (medicines.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No medicine names identified in the photo. Please try a clearer picture.'),
+          ),
+        );
+        return;
+      }
+
+      _showDetectedMedicinesDialog(medicines);
+    } catch (e) {
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Prescription scan failed: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showDetectedMedicinesDialog(List<String> medicines) {
+    final selectedMap = {for (var m in medicines) m: true};
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.auto_awesome, color: Color(0xFF00897B)),
+                  SizedBox(width: 8),
+                  Text('Medicines Detected', style: TextStyle(fontSize: 16)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Select the medicines to search in local pharmacies:',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    ...medicines.map((med) {
+                      return CheckboxListTile(
+                        dense: true,
+                        title: Text(med, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        value: selectedMap[med] ?? false,
+                        onChanged: (val) {
+                          setModalState(() {
+                            selectedMap[med] = val ?? false;
+                          });
+                        },
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.search, size: 16),
+                  label: const Text('Search Pharmacies'),
+                  onPressed: () {
+                    final selected = medicines.where((m) => selectedMap[m] == true).toList();
+                    if (selected.isEmpty) return;
+
+                    Navigator.pop(ctx);
+                    final queryText = selected.join(' ');
+                    _searchController.text = queryText;
+                    AppStateManager.instance.pharmacySearchQueryNotifier.value = queryText;
+                    _fetchPharmacies();
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Searching pharmacies for: ${selected.join(', ')}'),
+                        backgroundColor: const Color(0xFF00897B),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _fetchPharmacies() async {
@@ -154,8 +450,8 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                           Icons.photo_camera,
                           color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
                         ),
-                        tooltip: 'Scan Prescription',
-                        onPressed: () {},
+                        tooltip: 'Scan Prescription Photo',
+                        onPressed: _openPrescriptionScanner,
                       ),
                       IconButton(
                         icon: Icon(
@@ -458,28 +754,6 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       backgroundColor: isDark ? const Color(0xFF282A2F) : const Color(0xFFF1F3FC),
                       foregroundColor: theme.colorScheme.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: pharmacy.isOpen && pharmacy.items.any((i) => i['inStock'] as bool)
-                        ? () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Order requested from ${pharmacy.name}'),
-                                backgroundColor: const Color(0xFF00897B),
-                              ),
-                            );
-                          }
-                        : null,
-                    icon: const Icon(Icons.shopping_cart, size: 16),
-                    label: const Text('Order', style: TextStyle(fontSize: 11)),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      backgroundColor: theme.colorScheme.primaryContainer,
-                      foregroundColor: theme.colorScheme.onPrimaryContainer,
                     ),
                   ),
                 ),
