@@ -7,7 +7,6 @@ import '../widgets/initials_avatar.dart';
 import 'pharmacy_search_screen.dart';
 import 'emergency_screen.dart';
 import 'medical_id_screen.dart';
-import '../services/biometric_service.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
