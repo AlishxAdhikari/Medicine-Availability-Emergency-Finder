@@ -1,9 +1,35 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../state.dart';
+
+class DateInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digitsOnly = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final truncated = digitsOnly.length > 8 ? digitsOnly.substring(0, 8) : digitsOnly;
+
+    final buffer = StringBuffer();
+    for (int i = 0; i < truncated.length; i++) {
+      if (i == 4 || i == 6) {
+        buffer.write('-');
+      }
+      buffer.write(truncated[i]);
+    }
+
+    final formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
 
 class CreateAccountScreen extends StatefulWidget {
   const CreateAccountScreen({super.key});
@@ -23,6 +49,68 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
   bool _enableBiometricLogin = false; // the toggle's value
+
+  Future<void> _selectDate(BuildContext context) async {
+    final now = DateTime.now();
+    DateTime initialDate = DateTime(2000, 1, 1);
+    if (_dobController.text.trim().length == 10) {
+      try {
+        final parts = _dobController.text.trim().split('-');
+        final y = int.parse(parts[0]);
+        final m = int.parse(parts[1]);
+        final d = int.parse(parts[2]);
+        initialDate = DateTime(y, m, d);
+      } catch (_) {}
+    }
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate.isAfter(now) ? now : initialDate,
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+    if (picked != null) {
+      final formattedMonth = picked.month.toString().padLeft(2, '0');
+      final formattedDay = picked.day.toString().padLeft(2, '0');
+      _dobController.text = '${picked.year}-$formattedMonth-$formattedDay';
+    }
+  }
+
+  String? _validateDate(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Please enter your date of birth';
+    }
+    final val = value.trim();
+    final regex = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    if (!regex.hasMatch(val)) {
+      return 'Enter date in YYYY-MM-DD format';
+    }
+    final parts = val.split('-');
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+
+    if (year == null || month == null || day == null) {
+      return 'Invalid date';
+    }
+    if (year < 1900 || year > DateTime.now().year) {
+      return 'Year must be between 1900 and ${DateTime.now().year}';
+    }
+    if (month < 1 || month > 12) {
+      return 'Month must be between 01 and 12';
+    }
+    if (day < 1 || day > 31) {
+      return 'Day must be between 01 and 31';
+    }
+    try {
+      final parsedDate = DateTime(year, month, day);
+      if (parsedDate.isAfter(DateTime.now())) {
+        return 'Date of birth cannot be in the future';
+      }
+    } catch (_) {
+      return 'Invalid date';
+    }
+    return null;
+  }
 
   @override
   void dispose() {
@@ -272,17 +360,21 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                           // Date of Birth
                           TextFormField(
                             controller: _dobController,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               hintText: 'Date of Birth (YYYY-MM-DD)',
-                              prefixIcon: Icon(Icons.calendar_today),
+                              prefixIcon: const Icon(Icons.calendar_today),
+                              suffixIcon: IconButton(
+                                icon: const Icon(Icons.edit_calendar),
+                                tooltip: 'Select Date',
+                                onPressed: () => _selectDate(context),
+                              ),
                             ),
-                            keyboardType: TextInputType.datetime,
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter your date of birth';
-                              }
-                              return null;
-                            },
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              DateInputFormatter(),
+                            ],
+                            validator: _validateDate,
                           ),
                           const SizedBox(height: 16),
 

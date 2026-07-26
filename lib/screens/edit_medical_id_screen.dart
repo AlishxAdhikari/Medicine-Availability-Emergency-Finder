@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../state.dart';
 import '../services/api_client.dart';
 import '../services/medical_profile_service.dart';
 import '../widgets/initials_avatar.dart';
 import '../services/biometric_service.dart';
+import 'create_account_screen.dart' show DateInputFormatter;
 
 class EditMedicalIdScreen extends StatefulWidget {
   const EditMedicalIdScreen({super.key});
@@ -23,6 +25,68 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
   late TextEditingController _weightController;
   final TextEditingController _newAllergyController = TextEditingController();
   final TextEditingController _newMedicationController = TextEditingController();
+
+  Future<void> _selectDate(BuildContext context) async {
+    final now = DateTime.now();
+    DateTime initialDate = DateTime(2000, 1, 1);
+    if (_dobController.text.trim().length == 10) {
+      try {
+        final parts = _dobController.text.trim().split('-');
+        final y = int.parse(parts[0]);
+        final m = int.parse(parts[1]);
+        final d = int.parse(parts[2]);
+        initialDate = DateTime(y, m, d);
+      } catch (_) {}
+    }
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate.isAfter(now) ? now : initialDate,
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+    if (picked != null) {
+      final formattedMonth = picked.month.toString().padLeft(2, '0');
+      final formattedDay = picked.day.toString().padLeft(2, '0');
+      _dobController.text = '${picked.year}-$formattedMonth-$formattedDay';
+    }
+  }
+
+  String? _validateDate(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Date of birth is required';
+    }
+    final val = value.trim();
+    final regex = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    if (!regex.hasMatch(val)) {
+      return 'Enter date in YYYY-MM-DD format';
+    }
+    final parts = val.split('-');
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+
+    if (year == null || month == null || day == null) {
+      return 'Invalid date';
+    }
+    if (year < 1900 || year > DateTime.now().year) {
+      return 'Year must be between 1900 and ${DateTime.now().year}';
+    }
+    if (month < 1 || month > 12) {
+      return 'Month must be between 01 and 12';
+    }
+    if (day < 1 || day > 31) {
+      return 'Day must be between 01 and 31';
+    }
+    try {
+      final parsedDate = DateTime(year, month, day);
+      if (parsedDate.isAfter(DateTime.now())) {
+        return 'Date of birth cannot be in the future';
+      }
+    } catch (_) {
+      return 'Invalid date';
+    }
+    return null;
+  }
 
   List<String> _allergies = [];
   List<Medication> _medications = [];
@@ -258,15 +322,21 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _dobController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Date of Birth (YYYY-MM-DD)',
+                      prefixIcon: const Icon(Icons.calendar_today),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.edit_calendar),
+                        tooltip: 'Select Date',
+                        onPressed: () => _selectDate(context),
+                      ),
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Date of birth is required';
-                      }
-                      return null;
-                    },
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      DateInputFormatter(),
+                    ],
+                    validator: _validateDate,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
