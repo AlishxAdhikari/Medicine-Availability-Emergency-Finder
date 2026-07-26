@@ -20,11 +20,11 @@ class MedicalProfileService {
 
   final _client = ApiClient.instance;
 
-  /// GET /medical-id/ and merge the result into the current in-memory
+  /// GET /auth/medical-id/ and merge the result into the current in-memory
   /// profile, keeping fullName/dob/gender/phoneNumber (which come from
   /// auth, not this endpoint) untouched.
   Future<UserProfile> fetch() async {
-    final json = await _client.get('/medical-id/', auth: true) as Map<String, dynamic>;
+    final json = await _client.get('/auth/medical-id/', auth: true) as Map<String, dynamic>;
     final current = AppStateManager.instance.userProfileNotifier.value;
     final merged = _applyApiJson(current, json);
     AppStateManager.instance.updateProfile(merged);
@@ -45,7 +45,7 @@ class MedicalProfileService {
       ..._toApiContact(profile.emergencyContacts),
     };
 
-    final json = await _client.put('/medical-id/', body, auth: true) as Map<String, dynamic>;
+    final json = await _client.put('/auth/medical-id/', body, auth: true) as Map<String, dynamic>;
     final merged = _applyApiJson(profile, json);
     AppStateManager.instance.updateProfile(merged);
     return merged;
