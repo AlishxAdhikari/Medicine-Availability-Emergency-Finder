@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/pharmacy_service.dart';
+import '../services/stock_alert_service.dart';
 import '../state.dart';
 
 class PharmacySearchScreen extends StatefulWidget {
@@ -17,6 +18,17 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
   List<Pharmacy> _results = [];
   bool _isLoading = true;
   String? _error;
+
+  // Live stock alerts (sync/ pipeline): connected to whichever pharmacy is
+  // currently the top search result. Scope decision -- the app has no
+  // per-pharmacy detail screen yet, and opening one WebSocket per visible
+  // card would mean N connections per search. Watching just the nearest
+  // result is enough to demonstrate the pipeline end-to-end; revisit this
+  // once a pharmacy detail screen exists to watch whichever one the user
+  // is actually looking at.
+  final StockAlertService _alertService = StockAlertService();
+  StreamSubscription<StockAlert>? _alertSubscription;
+  int? _watchedPharmacyId;
 
   @override
   void initState() {
@@ -42,6 +54,7 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
         _error = null;
         _isLoading = false;
       });
+      _watchTopResultForLiveStock();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -57,9 +70,58 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
     }
   }
 
+  /// (Re)subscribes to the nearest result's stock-alert WebSocket. Safe to
+  /// call after every search -- does nothing if the top result is already
+  /// the one being watched, so a fresh search for the same area doesn't
+  /// needlessly reconnect.
+  void _watchTopResultForLiveStock() {
+    if (_results.isEmpty) {
+      _alertSubscription?.cancel();
+      _alertService.disconnect();
+      _watchedPharmacyId = null;
+      return;
+    }
+
+    final topPharmacy = _results.first;
+    if (_watchedPharmacyId == topPharmacy.id) return; // already watching this one
+
+    _alertSubscription?.cancel();
+    _watchedPharmacyId = topPharmacy.id;
+    _alertSubscription = _alertService.connect(topPharmacy.id).listen(_onStockAlert);
+  }
+
+  void _onStockAlert(StockAlert alert) {
+    if (!mounted) return;
+
+    setState(() {
+      // Update the matching medicine chip in place, if the watched
+      // pharmacy's card is showing that medicine -- so the UI reflects
+      // the new quantity without the user needing to re-search.
+      final index = _results.indexWhere((p) => p.id == _watchedPharmacyId);
+      if (index == -1) return;
+      final pharmacy = _results[index];
+      final itemIndex = pharmacy.items.indexWhere((i) => i['name'] == alert.medicineName);
+      if (itemIndex != -1) {
+        pharmacy.items[itemIndex]['inStock'] = alert.quantity > 0;
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${alert.level == 'critical' ? '⚠️ Critical' : 'Low stock'}: '
+          '${alert.medicineName} (${alert.quantity} left) at ${_results.first.name}',
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
+    _alertSubscription?.cancel();
+    _alertService.disconnect();
     _searchController.dispose();
     super.dispose();
   }

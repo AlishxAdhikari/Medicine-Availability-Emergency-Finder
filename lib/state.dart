@@ -105,6 +105,7 @@ class UserProfile {
 }
 
 class Pharmacy {
+  final int id; // backend pharmacy id -- needed for ws/stock/<id>/ live updates
   final String name;
   final String distance;
   final String address;
@@ -112,6 +113,7 @@ class Pharmacy {
   final List<Map<String, dynamic>> items; // {'name': 'Insulin', 'inStock': true}
 
   Pharmacy({
+    required this.id,
     required this.name,
     required this.distance,
     required this.address,

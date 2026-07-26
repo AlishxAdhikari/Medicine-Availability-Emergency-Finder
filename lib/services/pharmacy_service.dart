@@ -64,6 +64,7 @@ class PharmacyService {
 
     final distanceKm = json['distance_km'];
     return app_state.Pharmacy(
+      id: json['id'] as int,
       name: json['name'] as String,
       distance: distanceKm != null ? '${distanceKm}km' : json['district'] as String,
       address: json['address'] as String,
