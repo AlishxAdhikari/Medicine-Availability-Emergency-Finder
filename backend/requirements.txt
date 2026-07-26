@@ -20,3 +20,6 @@ sqlparse==0.5.5
 typing_extensions==4.16.0
 tzdata==2026.2
 uritemplate==4.2.0
+channels==4.1.0
+channels-redis==4.2.1
+daphne==4.1.2
