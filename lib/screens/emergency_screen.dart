@@ -10,35 +10,77 @@ class EmergencyScreen extends StatefulWidget {
 }
 
 class _EmergencyScreenState extends State<EmergencyScreen> {
+  // Only used when /districts/ can't be reached -- the chips still need
+  // something to render, but the backend is the source of truth.
+  static const List<String> _fallbackDistricts = ['Kathmandu', 'Lalitpur', 'Bhaktapur', 'Pokhara'];
+
   List<Ambulance> _ambulances = [];
   List<BloodBank> _bloodBanks = [];
+  List<String> _districts = _fallbackDistricts;
+  // The district the lists currently hold data for, so the notifier listener
+  // can tell a real user selection from our own corrective assignment below.
+  String? _loadedDistrict;
   bool _loading = true;
   String? _error;
+
+  ValueNotifier<String> get _districtNotifier =>
+      AppStateManager.instance.selectedDistrictNotifier;
 
   @override
   void initState() {
     super.initState();
+    _districtNotifier.addListener(_onDistrictChanged);
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _districtNotifier.removeListener(_onDistrictChanged);
+    super.dispose();
+  }
+
+  void _onDistrictChanged() {
+    if (_districtNotifier.value == _loadedDistrict) return;
     _loadData();
   }
 
   // Fetches both lists from the real backend (emergency/views.py) and
   // replaces the old hardcoded state.mockAmbulances/mockBloodBanks reads.
-  // Fetches the full lists once; district filtering still happens
-  // client-side below, same as it did against the mock data before.
+  // Filtering is done by the API's own ?district= filter rather than
+  // client-side: the endpoints are paginated, so filtering a single fetched
+  // page client-side hid whole districts once the dataset passed 20 rows.
   Future<void> _loadData() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final ambulances = await EmergencyService.instance.searchAmbulances();
-      final bloodBanks = await EmergencyService.instance.searchBloodBanks();
+      final fetched = await EmergencyService.instance.fetchDistricts();
+      final districts = fetched.isNotEmpty ? fetched : _fallbackDistricts;
+
+      // A district that no longer exists in the data (or the initial default,
+      // if the backend doesn't have it) would filter every list to empty.
+      var district = _districtNotifier.value;
+      if (!districts.contains(district)) {
+        district = districts.first;
+        // Set _loadedDistrict first so the listener treats this as already
+        // loaded and doesn't kick off a second, redundant _loadData().
+        _loadedDistrict = district;
+        _districtNotifier.value = district;
+      }
+      _loadedDistrict = district;
+
+      final ambulances = await EmergencyService.instance.searchAmbulances(district: district);
+      final bloodBanks = await EmergencyService.instance.searchBloodBanks(district: district);
+      if (!mounted) return;
       setState(() {
+        _districts = districts;
         _ambulances = ambulances;
         _bloodBanks = bloodBanks;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Could not load emergency services. Check your connection and try again.';
         _loading = false;
@@ -128,7 +170,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             ValueListenableBuilder<String>(
               valueListenable: state.selectedDistrictNotifier,
               builder: (context, activeDistrict, _) {
-                final districts = ['Kathmandu', 'Lalitpur', 'Bhaktapur', 'Pokhara'];
+                final districts = _districts;
                 return SizedBox(
                   height: 48,
                   child: ListView.builder(
@@ -267,9 +309,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
         ValueListenableBuilder<String>(
           valueListenable: state.selectedDistrictNotifier,
           builder: (context, district, _) {
-            final filteredAmbulances = _ambulances.where((amb) {
-              return amb.location.contains(district);
-            }).toList();
+            // Already filtered by the API's ?district= -- see _loadData().
+            final filteredAmbulances = _ambulances;
 
             if (filteredAmbulances.isEmpty) {
               return Center(
@@ -508,9 +549,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             return ValueListenableBuilder<String>(
               valueListenable: state.selectedDistrictNotifier,
               builder: (context, district, _) {
-                final filteredBanks = _bloodBanks.where((bank) {
-                  return bank.location.contains(district);
-                }).toList();
+                // Already filtered by the API's ?district= -- see _loadData().
+                final filteredBanks = _bloodBanks;
 
                 if (filteredBanks.isEmpty) {
                   return Center(

@@ -29,9 +29,23 @@ class EmergencyService {
       'lng': lng ?? _fallbackLng,
     };
 
-    final data = await _client.get('/blood-banks/', query: params);
-    final results = (data['results'] as List).cast<Map<String, dynamic>>();
+    final results = await _fetchAllPages('/blood-banks/', params);
     return results.map(_toBloodBank).toList();
+  }
+
+  /// The districts that actually have rows, so the UI's district filter can't
+  /// drift out of sync with the data (a hardcoded list silently hides any
+  /// district the backend knows about but the list doesn't mention).
+  Future<List<String>> fetchDistricts() async {
+    final results = await Future.wait([
+      _client.get('/ambulances/districts/'),
+      _client.get('/blood-banks/districts/'),
+    ]);
+    final districts = <String>{
+      for (final list in results) ...(list as List).cast<String>(),
+    }.toList();
+    districts.sort();
+    return districts;
   }
 
   Future<List<app_state.Ambulance>> searchAmbulances({
@@ -47,9 +61,31 @@ class EmergencyService {
       'has_oxygen': ?hasOxygen,
     };
 
-    final data = await _client.get('/ambulances/', query: params);
-    final results = (data['results'] as List).cast<Map<String, dynamic>>();
+    final results = await _fetchAllPages('/ambulances/', params);
     return results.map(_toAmbulance).toList();
+  }
+
+  // Both endpoints are paginated (PAGE_SIZE 20 in settings.py), and callers
+  // here want a whole list, not a page -- reading only 'results' of page 1
+  // silently drops everything past row 20. Follows 'next' by page number
+  // (ApiClient builds URLs from a path + query, so the absolute 'next' URL
+  // isn't usable directly), capped so a paging bug can't loop forever.
+  static const int _maxPages = 25;
+
+  Future<List<Map<String, dynamic>>> _fetchAllPages(
+    String path,
+    Map<String, dynamic> params,
+  ) async {
+    final all = <Map<String, dynamic>>[];
+    for (var page = 1; page <= _maxPages; page++) {
+      final data = await _client.get(
+        path,
+        query: {...params, if (page > 1) 'page': page},
+      );
+      all.addAll((data['results'] as List).cast<Map<String, dynamic>>());
+      if (data['next'] == null) break;
+    }
+    return all;
   }
 
   app_state.BloodBank _toBloodBank(Map<String, dynamic> json) {
