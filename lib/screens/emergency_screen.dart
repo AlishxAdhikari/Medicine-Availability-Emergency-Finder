@@ -10,8 +10,9 @@ class EmergencyScreen extends StatefulWidget {
 }
 
 class _EmergencyScreenState extends State<EmergencyScreen> {
-  // Only used when /districts/ can't be reached -- the chips still need
-  // something to render, but the backend is the source of truth.
+  // Only used when /districts/ comes back empty -- the chips still need
+  // something to render, but the backend is the source of truth. (A failed
+  // request shows the error state below instead, same as before.)
   static const List<String> _fallbackDistricts = ['Kathmandu', 'Lalitpur', 'Bhaktapur', 'Pokhara'];
 
   List<Ambulance> _ambulances = [];
