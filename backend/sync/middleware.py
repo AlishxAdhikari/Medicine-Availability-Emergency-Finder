@@ -29,9 +29,18 @@ def _user_from_token(raw_token):
 
     User = get_user_model()
     try:
-        return User.objects.get(pk=token['user_id'])
+        user = User.objects.get(pk=token['user_id'])
     except (User.DoesNotExist, KeyError):
         return AnonymousUser()
+
+    # Match DRF's JWTAuthentication, which rejects an inactive user's token
+    # ("User is inactive") even if the token itself hasn't expired -- without
+    # this, a deactivated account keeps a live socket after REST access is
+    # already cut off.
+    if not user.is_active:
+        return AnonymousUser()
+
+    return user
 
 
 class JWTAuthMiddleware:
