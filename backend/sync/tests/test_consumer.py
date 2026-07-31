@@ -8,11 +8,14 @@ actually arrive at a connected client's socket.
 Django 4.1+ runs `async def test_...` methods on a TransactionTestCase
 natively, so no extra test runner plugin is needed here.
 """
+from datetime import timedelta
+
+from channels.db import database_sync_to_async
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 from medalert_api.asgi import application
 
@@ -110,6 +113,25 @@ class StockConsumerTests(TransactionTestCase):
             {'type': 'stock_alert', 'data': {'medicine_id': 1, 'medicine_name': 'X', 'quantity': 1, 'level': 'low'}},
         )
 
+    async def _assert_rejected_with_4401(self, communicator, msg=None):
+        """StockConsumer.connect() accepts the handshake before closing with
+        4401 (see the comment in consumers.py: most ASGI servers turn a
+        pre-accept close into a bare HTTP 403 and the custom code never
+        reaches a real client). So WebsocketCommunicator.connect() reports
+        `connected=True` here -- the upgrade genuinely completed -- and the
+        4401 close arrives as the *next* ASGI message, not as the second
+        element of connect()'s return tuple. This helper reads that message
+        and pins the close code, so a regression back to close-before-accept
+        (which would make `connected` False here and short the close frame
+        entirely) fails this test.
+        """
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected, msg or 'Handshake should complete so the close frame actually reaches the client')
+        close_message = await communicator.receive_output()
+        self.assertEqual(close_message['type'], 'websocket.close')
+        self.assertEqual(close_message.get('code'), 4401)
+        await communicator.disconnect()
+
     async def test_connection_without_a_token_is_rejected(self):
         """The socket used to accept anyone. It carries only data the public
         REST stock endpoint already serves, so this was never a leak -- but
@@ -117,12 +139,28 @@ class StockConsumerTests(TransactionTestCase):
         arbitrary group ids, and the next phase puts richer data on this
         pipe."""
         communicator = WebsocketCommunicator(application, '/ws/stock/1/')
-        connected, _ = await communicator.connect()
-        self.assertFalse(connected, 'Anonymous connection should have been rejected')
-        await communicator.disconnect()
+        await self._assert_rejected_with_4401(communicator, 'Anonymous connection should have been rejected')
 
     async def test_connection_with_a_garbage_token_is_rejected(self):
         communicator = WebsocketCommunicator(application, '/ws/stock/1/?token=not-a-jwt')
-        connected, _ = await communicator.connect()
-        self.assertFalse(connected)
-        await communicator.disconnect()
+        await self._assert_rejected_with_4401(communicator)
+
+    async def test_connection_with_an_expired_token_is_rejected(self):
+        token = AccessToken.for_user(self.user)
+        # Force the token's expiry into the past rather than waiting out the
+        # real lifetime.
+        token.set_exp(lifetime=-timedelta(seconds=1))
+        communicator = WebsocketCommunicator(application, f'/ws/stock/1/?token={token}')
+        await self._assert_rejected_with_4401(communicator, 'Expired token should have been rejected')
+
+    async def test_connection_with_a_deleted_users_token_is_rejected(self):
+        token = str(RefreshToken.for_user(self.user).access_token)
+        await database_sync_to_async(self.user.delete)()
+        communicator = WebsocketCommunicator(application, f'/ws/stock/1/?token={token}')
+        await self._assert_rejected_with_4401(communicator, 'A token for a since-deleted user should have been rejected')
+
+    async def test_connection_with_a_deactivated_users_token_is_rejected(self):
+        self.user.is_active = False
+        await database_sync_to_async(self.user.save)()
+        communicator = WebsocketCommunicator(application, self.url(1))
+        await self._assert_rejected_with_4401(communicator, "A deactivated user's token should have been rejected")

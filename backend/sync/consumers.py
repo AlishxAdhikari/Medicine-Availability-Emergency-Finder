@@ -22,6 +22,16 @@ class StockConsumer(AsyncWebsocketConsumer):
         # never becomes a wider channel than the equivalent REST endpoint.
         user = self.scope.get('user')
         if user is None or not user.is_authenticated:
+            # Deliberately accept() before close(code=4401): most ASGI servers
+            # (Daphne included) respond to a pre-accept close by denying the
+            # handshake with a plain HTTP 403, which throws away the custom
+            # close code before it ever reaches a real client. Completing the
+            # upgrade first means the close frame -- and 4401 specifically --
+            # actually arrives, which the Dart client depends on to trigger
+            # its token-refresh-and-reconnect-once flow. Nothing is ever sent
+            # on the socket in between, so this leaks nothing. Do not "tidy"
+            # this back to close-before-accept.
+            await self.accept()
             await self.close(code=4401)
             return
 
