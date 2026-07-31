@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 import secrets
 
@@ -51,6 +52,17 @@ class StockTransaction(models.Model):
     source = models.CharField(
         max_length=20,
         choices=SOURCE_TYPES
+    )
+    # Who made the change, for source='MANUAL' rows. Null for POS_SYNC, which
+    # authenticates with a pharmacy-wide integration key and has no user
+    # behind it. Without this, a MANUAL audit row records that *someone*
+    # adjusted stock but not who, which is most of the value of the log.
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='stock_changes',
     )
     client_timestamp = models.DateTimeField()
     server_timestamp = models.DateTimeField(auto_now_add=True)
