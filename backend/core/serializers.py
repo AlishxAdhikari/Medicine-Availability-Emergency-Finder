@@ -95,11 +95,27 @@ class UserSerializer(serializers.ModelSerializer):
     """Read-only representation of the logged-in user, returned alongside
     the register/login response so the client doesn't need a second round
     trip. Includes first_name/last_name so the app can show the person's
-    real name on any device, not just the one they registered on."""
+    real name on any device, not just the one they registered on.
+
+    role and pharmacy are derived from the PharmacyOwner link rather than
+    stored, so they can never disagree with it. The client routes on role
+    straight out of the login response -- see login_screen.dart.
+    """
+    role = serializers.SerializerMethodField()
+    pharmacy = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name')
+        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'role', 'pharmacy')
+
+    def get_role(self, obj):
+        return 'pharmacy_owner' if hasattr(obj, 'pharmacy_owner') else 'user'
+
+    def get_pharmacy(self, obj):
+        owner_link = getattr(obj, 'pharmacy_owner', None)
+        if owner_link is None:
+            return None
+        return {'id': owner_link.pharmacy_id, 'name': owner_link.pharmacy.name}
 
 
 class MedicalProfileSerializer(serializers.ModelSerializer):
