@@ -370,7 +370,7 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
   /// call after every search -- does nothing if the top result is already
   /// the one being watched, so a fresh search for the same area doesn't
   /// needlessly reconnect.
-  void _watchTopResultForLiveStock() {
+  Future<void> _watchTopResultForLiveStock() async {
     if (_results.isEmpty) {
       _alertSubscription?.cancel();
       _alertService.disconnect();
@@ -383,7 +383,9 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
 
     _alertSubscription?.cancel();
     _watchedPharmacyId = topPharmacy.id;
-    _alertSubscription = _alertService.connect(topPharmacy.id).listen(_onStockAlert);
+    final stream = await _alertService.connect(topPharmacy.id);
+    if (!mounted) return;
+    _alertSubscription = stream.listen(_onStockAlert);
   }
 
   void _onStockAlert(StockAlert alert) {

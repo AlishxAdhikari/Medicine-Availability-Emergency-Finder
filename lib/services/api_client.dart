@@ -94,6 +94,21 @@ class ApiClient {
     return _handleResponse(response, retryRequest: () => put(path, body, auth: auth));
   }
 
+  /// PATCH with a JSON body -- the owner stock API takes partial updates
+  /// (quantity alone, price alone), so PUT would force the client to send
+  /// fields it isn't changing.
+  Future<dynamic> patch(String path, Map<String, dynamic> body, {bool auth = false}) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await http.patch(uri, headers: await _headers(auth: auth), body: jsonEncode(body));
+    return _handleResponse(response, retryRequest: () => patch(path, body, auth: auth));
+  }
+
+  Future<dynamic> delete(String path, {bool auth = false}) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await http.delete(uri, headers: await _headers(auth: auth));
+    return _handleResponse(response, retryRequest: () => delete(path, auth: auth));
+  }
+
   Future<dynamic> _handleResponse(http.Response response, {required Future<dynamic> Function() retryRequest}) async {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (response.body.isEmpty) return null;

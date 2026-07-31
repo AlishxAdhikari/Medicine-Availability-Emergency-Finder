@@ -168,6 +168,13 @@ class AppStateManager {
   // Authentication State
   final ValueNotifier<bool> isLoggedInNotifier = ValueNotifier<bool>(false);
 
+  /// Whether the signed-in account is linked to a pharmacy. Set from the
+  /// `role` field on the login response (see core/serializers.py's
+  /// UserSerializer), and from the saved snapshot on the biometric path.
+  final ValueNotifier<bool> isPharmacyOwnerNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<int?> ownedPharmacyIdNotifier = ValueNotifier<int?>(null);
+  final ValueNotifier<String> ownedPharmacyNameNotifier = ValueNotifier<String>('');
+
   // Current Language Code ('en' or 'ne')
   final ValueNotifier<String> languageNotifier = ValueNotifier<String>('en');
 
@@ -268,6 +275,18 @@ class AppStateManager {
     isLoggedInNotifier.value = status;
   }
 
+  void setOwnerRole({required bool isOwner, int? pharmacyId, String pharmacyName = ''}) {
+    isPharmacyOwnerNotifier.value = isOwner;
+    ownedPharmacyIdNotifier.value = isOwner ? pharmacyId : null;
+    ownedPharmacyNameNotifier.value = isOwner ? pharmacyName : '';
+  }
+
+  /// Call on logout as well as before a fresh login, so one account's
+  /// pharmacy can't leak into the next session on a shared device.
+  void clearOwnerRole() {
+    setOwnerRole(isOwner: false);
+  }
+
   void toggleLanguage() {
     languageNotifier.value = languageNotifier.value == 'en' ? 'ne' : 'en';
   }
@@ -325,7 +344,21 @@ Map<String, dynamic> profileToSnapshot(UserProfile p) {
             })
         .toList(),
     'profilePictureUrl': p.profilePictureUrl,
+    'isPharmacyOwner': AppStateManager.instance.isPharmacyOwnerNotifier.value,
+    'ownedPharmacyId': AppStateManager.instance.ownedPharmacyIdNotifier.value,
+    'ownedPharmacyName': AppStateManager.instance.ownedPharmacyNameNotifier.value,
   };
+}
+
+/// Restores the owner role from a biometric snapshot. Kept separate from
+/// profileFromSnapshot because that builds a UserProfile, while the role
+/// lives on AppStateManager rather than on the profile object.
+void applyOwnerRoleFromSnapshot(Map<String, dynamic> s) {
+  AppStateManager.instance.setOwnerRole(
+    isOwner: s['isPharmacyOwner'] as bool? ?? false,
+    pharmacyId: s['ownedPharmacyId'] as int?,
+    pharmacyName: s['ownedPharmacyName'] as String? ?? '',
+  );
 }
 
 UserProfile profileFromSnapshot(Map<String, dynamic> s) {
