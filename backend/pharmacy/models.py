@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -44,3 +45,35 @@ class PharmacyMedicineStock(models.Model):
 
     def __str__(self):
         return f"{self.medicine.name} @ {self.pharmacy.name} ({self.quantity})"
+
+
+class PharmacyOwner(models.Model):
+    """Links a Django user to the pharmacy they run.
+
+    The app has no stored role field on purpose. "Is this user a pharmacy
+    owner?" is answered by whether this row exists (hasattr(user,
+    'pharmacy_owner')), so there is no second source of truth that can drift
+    out of step with the link itself.
+
+    OneToOne on user: a user owns at most one pharmacy, so "which pharmacy is
+    this request for?" always has exactly one answer. FK on pharmacy: one shop
+    can have several owner logins.
+
+    Created by staff in Django admin -- there is deliberately no self-service
+    claim flow, since nothing would stop a user claiming a pharmacy they
+    don't run.
+    """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='pharmacy_owner',
+    )
+    pharmacy = models.ForeignKey(
+        Pharmacy,
+        on_delete=models.CASCADE,
+        related_name='owners',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} owns {self.pharmacy.name}"
