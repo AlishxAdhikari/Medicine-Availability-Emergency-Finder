@@ -1357,19 +1357,71 @@ In `lib/services/stock_alert_service.dart`, add `import 'api_client.dart';` at t
   ///
   /// The access token goes in the query string because browsers can't set
   /// custom headers on a WebSocket handshake -- sync/middleware.py reads it
-  /// from there. Without a valid token the server closes with 4401.
+  /// from there. Without a valid token the server accepts the socket and then
+  /// immediately closes it with code 4401.
   Future<Stream<StockAlert>> connect(int pharmacyId) async {
     disconnect(); // close any previous connection first -- one at a time
 
+    _retriedAfterAuthFailure = false;
+    // The controller is created here, not in _attach, so it survives a
+    // reconnect -- the caller keeps listening to the same stream across a
+    // token refresh and never sees the socket flap.
+    _controller = StreamController<StockAlert>.broadcast();
+    await _attach(pharmacyId);
+    return _controller!.stream;
+  }
+
+  Future<void> _attach(int pharmacyId) async {
     final token = await ApiClient.instance.accessToken;
     final uri = Uri.parse('$_wsBaseUrl/ws/stock/$pharmacyId/').replace(
       queryParameters: {if (token != null) 'token': token},
     );
     _channel = WebSocketChannel.connect(uri);
-    _controller = StreamController<StockAlert>.broadcast();
+
+    _channel!.stream.listen(
+      (raw) {
+        try {
+          final json = jsonDecode(raw as String) as Map<String, dynamic>;
+          _controller?.add(StockAlert.fromJson(json));
+        } catch (_) {
+          // Malformed message from the server -- drop it rather than
+          // crashing the whole stream for one bad payload.
+        }
+      },
+      onError: (_) {
+        // Connection dropped (server restarted, network blip, etc). The
+        // stream just ends; the UI's listener should treat "no more
+        // alerts" as normal rather than fatal.
+        _controller?.close();
+      },
+      onDone: () async {
+        // 4401 from sync/consumers.py means the access token was missing,
+        // expired, or belongs to a deleted/deactivated user. An access token
+        // lives 30 minutes (SIMPLE_JWT in settings.py), so a screen left open
+        // will hit this routinely -- refresh once and reopen rather than
+        // silently going dead until the user navigates away and back.
+        // Retry once only: if the refresh itself is what's failing, reopening
+        // in a loop would hammer the server.
+        if (_channel?.closeCode == 4401 && !_retriedAfterAuthFailure) {
+          _retriedAfterAuthFailure = true;
+          if (await ApiClient.instance.refreshAccessToken()) {
+            await _attach(pharmacyId);
+            return; // same controller, so the caller's stream stays alive
+          }
+        }
+        _controller?.close();
+      },
+    );
+  }
 ```
 
-Leave the rest of the method body unchanged.
+Add the retry flag alongside the existing fields at the top of the class:
+
+```dart
+  bool _retriedAfterAuthFailure = false;
+```
+
+The old body of `connect` is fully replaced by the two methods above — do not leave a duplicate `listen` block behind. `disconnect()` is unchanged.
 
 - [ ] **Step 8: Update the one caller**
 
