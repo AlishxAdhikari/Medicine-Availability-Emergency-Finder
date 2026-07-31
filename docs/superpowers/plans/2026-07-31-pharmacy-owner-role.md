@@ -1082,9 +1082,15 @@ def _user_from_token(raw_token):
 
     User = get_user_model()
     try:
-        return User.objects.get(pk=token['user_id'])
+        user = User.objects.get(pk=token['user_id'])
     except (User.DoesNotExist, KeyError):
         return AnonymousUser()
+
+    # is_authenticated is True even for a deactivated account, so without this
+    # check a disabled user holding an unexpired token would keep the socket
+    # while DRF's JWTAuthentication rejects that same token on REST ("User is
+    # inactive"). Match the REST contract.
+    return user if user.is_active else AnonymousUser()
 
 
 class JWTAuthMiddleware:
@@ -1114,8 +1120,15 @@ Replace `connect()` in `backend/sync/consumers.py`:
         # When live sync broadens, anything owner-only goes to a separate
         # pharmacy_<id>_owner group that does check ownership -- so this socket
         # never becomes a wider channel than the equivalent REST endpoint.
+        # accept() BEFORE close() is deliberate and must not be "tidied up".
+        # Closing without accepting makes Daphne deny the handshake with an
+        # HTTP 403, and the 4401 never reaches the client -- it survives only
+        # in Channels' in-memory test transport. Accepting first completes the
+        # upgrade so the close frame, and its code, actually arrive. Nothing is
+        # ever sent on the socket before the close, so this leaks nothing.
         user = self.scope.get('user')
         if user is None or not user.is_authenticated:
+            await self.accept()
             await self.close(code=4401)
             return
 
