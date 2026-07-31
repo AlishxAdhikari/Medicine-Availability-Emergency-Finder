@@ -10,12 +10,26 @@ natively, so no extra test runner plugin is needed here.
 """
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
+from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from medalert_api.asgi import application
 
+User = get_user_model()
+
 
 class StockConsumerTests(TransactionTestCase):
+
+    def setUp(self):
+        # Created synchronously here rather than inside the async tests --
+        # TransactionTestCase.setUp is sync, so no database_sync_to_async
+        # wrapper is needed.
+        self.user = User.objects.create_user(username='ws-user', password='pw123456!')
+        self.token = str(RefreshToken.for_user(self.user).access_token)
+
+    def url(self, pharmacy_id):
+        return f'/ws/stock/{pharmacy_id}/?token={self.token}'
 
     async def test_client_connects_and_receives_group_message(self):
         """The core round-trip: connect to ws/stock/<id>/, have something
@@ -26,7 +40,7 @@ class StockConsumerTests(TransactionTestCase):
         proves the send actually *arrives*.
         """
         pharmacy_id = 1
-        communicator = WebsocketCommunicator(application, f'/ws/stock/{pharmacy_id}/')
+        communicator = WebsocketCommunicator(application, self.url(pharmacy_id))
         connected, subprotocol = await communicator.connect()
         self.assertTrue(connected, 'WebSocket failed to connect -- check routing.py path matches')
 
@@ -58,7 +72,7 @@ class StockConsumerTests(TransactionTestCase):
         per-pharmacy group isolation in connect() actually works, not just
         that messages arrive at all.
         """
-        communicator = WebsocketCommunicator(application, '/ws/stock/1/')
+        communicator = WebsocketCommunicator(application, self.url(1))
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
 
@@ -84,7 +98,7 @@ class StockConsumerTests(TransactionTestCase):
         the group (group_discard in consumers.py). This mostly guards
         against a connection leak silently keeping stale sockets in a group.
         """
-        communicator = WebsocketCommunicator(application, '/ws/stock/1/')
+        communicator = WebsocketCommunicator(application, self.url(1))
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
         await communicator.disconnect()
@@ -95,3 +109,20 @@ class StockConsumerTests(TransactionTestCase):
             'pharmacy_1',
             {'type': 'stock_alert', 'data': {'medicine_id': 1, 'medicine_name': 'X', 'quantity': 1, 'level': 'low'}},
         )
+
+    async def test_connection_without_a_token_is_rejected(self):
+        """The socket used to accept anyone. It carries only data the public
+        REST stock endpoint already serves, so this was never a leak -- but
+        unauthenticated clients could open unbounded sockets against
+        arbitrary group ids, and the next phase puts richer data on this
+        pipe."""
+        communicator = WebsocketCommunicator(application, '/ws/stock/1/')
+        connected, _ = await communicator.connect()
+        self.assertFalse(connected, 'Anonymous connection should have been rejected')
+        await communicator.disconnect()
+
+    async def test_connection_with_a_garbage_token_is_rejected(self):
+        communicator = WebsocketCommunicator(application, '/ws/stock/1/?token=not-a-jwt')
+        connected, _ = await communicator.connect()
+        self.assertFalse(connected)
+        await communicator.disconnect()
