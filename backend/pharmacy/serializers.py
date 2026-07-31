@@ -38,3 +38,24 @@ class PharmacyMedicineStockSerializer(serializers.ModelSerializer):
     class Meta:
         model = PharmacyMedicineStock
         fields = ('id', 'medicine', 'quantity', 'price', 'low_threshold')
+
+
+class OwnerStockSerializer(serializers.ModelSerializer):
+    """The owner's editable view of a stock row.
+
+    Output-only. The view validates and applies writes itself, because a
+    quantity change is not a field assignment -- it has to go through
+    apply_stock_change() inside a row lock to produce the audit trail and
+    trigger the low-stock alert. Letting a ModelSerializer write `quantity`
+    directly would bypass both.
+
+    `medicine` is nested rather than an id so the dashboard can render a name
+    without a second request. On create, the view reads the medicine id
+    straight off request.data.
+    """
+    medicine = MedicineSerializer(read_only=True)
+
+    class Meta:
+        model = PharmacyMedicineStock
+        fields = ('id', 'medicine', 'quantity', 'price', 'low_threshold')
+        read_only_fields = fields

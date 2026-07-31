@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.test import TestCase
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from pharmacy.models import Medicine, Pharmacy, PharmacyMedicineStock, PharmacyOwner
 from pharmacy.services import apply_stock_change
@@ -131,3 +132,148 @@ class ApplyStockChangeTests(TestCase):
                 self.pharmacy, self.medicine, absolute=10, delta=5,
                 source='MANUAL', transaction_type='ADJUSTED',
             )
+
+
+class OwnerStockApiTests(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.password = 'pw123456!'
+        self.owner = User.objects.create_user(username='owner6', password=self.password)
+        self.pharmacy = make_pharmacy('My Pharmacy')
+        PharmacyOwner.objects.create(user=self.owner, pharmacy=self.pharmacy)
+
+        self.medicine = Medicine.objects.create(
+            name='Paracetamol 500mg', category='Analgesic',
+            dosage_form='Tablet', strength='500mg',
+        )
+        self.stock = PharmacyMedicineStock.objects.create(
+            pharmacy=self.pharmacy, medicine=self.medicine, quantity=100, price=10,
+        )
+
+    def _auth(self, user):
+        self.client.force_authenticate(user=user)
+
+    def test_owner_lists_only_their_own_stock(self):
+        other_pharmacy = make_pharmacy('Someone Elses')
+        PharmacyMedicineStock.objects.create(
+            pharmacy=other_pharmacy, medicine=self.medicine, quantity=7, price=5,
+        )
+        self._auth(self.owner)
+
+        response = self.client.get('/api/v1/my-pharmacy/stock/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['quantity'], 100)
+        self.assertEqual(response.data[0]['medicine']['name'], 'Paracetamol 500mg')
+
+    def test_plain_user_is_forbidden(self):
+        plain = User.objects.create_user(username='plain6', password=self.password)
+        self._auth(plain)
+
+        self.assertEqual(self.client.get('/api/v1/my-pharmacy/stock/').status_code, 403)
+
+    def test_anonymous_is_rejected(self):
+        self.assertIn(self.client.get('/api/v1/my-pharmacy/stock/').status_code, (401, 403))
+
+    def test_patch_sets_absolute_quantity_and_logs_manual_transaction(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'quantity': 60}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 60)
+        txn = StockTransaction.objects.get()
+        self.assertEqual(txn.quantity_delta, -40)
+        self.assertEqual(txn.source, 'MANUAL')
+        self.assertEqual(txn.changed_by, self.owner)
+
+    def test_patch_can_change_price_without_touching_quantity(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'price': '12.50'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.stock.refresh_from_db()
+        self.assertEqual(str(self.stock.price), '12.50')
+        self.assertEqual(self.stock.quantity, 100)
+        self.assertEqual(StockTransaction.objects.count(), 0)
+
+    def test_owner_cannot_touch_another_pharmacys_row(self):
+        """404 rather than 403 on purpose -- a 403 would confirm the row
+        exists, which is itself a leak."""
+        other_pharmacy = make_pharmacy('Someone Elses')
+        foreign = PharmacyMedicineStock.objects.create(
+            pharmacy=other_pharmacy, medicine=self.medicine, quantity=7, price=5,
+        )
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{foreign.id}/', {'quantity': 0}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.quantity, 7)
+
+    def test_post_adds_a_medicine(self):
+        new_medicine = Medicine.objects.create(
+            name='Amoxicillin 250mg', category='Antibiotic',
+            dosage_form='Capsule', strength='250mg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 25, 'price': '8.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        created = PharmacyMedicineStock.objects.get(pharmacy=self.pharmacy, medicine=new_medicine)
+        self.assertEqual(created.quantity, 25)
+        self.assertEqual(StockTransaction.objects.filter(medicine=new_medicine).count(), 1)
+
+    def test_post_rejects_a_medicine_already_stocked(self):
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': self.medicine.id, 'quantity': 5, 'price': '8.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_zeroes_then_removes_the_row(self):
+        """Removing a medicine is 'we no longer carry this', which is not the
+        same as a quantity of zero -- so the removal still lands in the
+        ledger before the row goes."""
+        self._auth(self.owner)
+
+        response = self.client.delete(f'/api/v1/my-pharmacy/stock/{self.stock.id}/')
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(PharmacyMedicineStock.objects.filter(id=self.stock.id).exists())
+        txn = StockTransaction.objects.get()
+        self.assertEqual(txn.quantity_delta, -100)
+        self.assertEqual(txn.source, 'MANUAL')
+
+    def test_manual_edit_below_threshold_fires_the_low_stock_alert(self):
+        """Routing owner edits through StockTransaction is what makes the
+        existing sync/signals.py alert fire on them -- this is the test that
+        proves it, since the signal hooks the transaction, not the row."""
+        from unittest.mock import patch as mock_patch
+
+        self.stock.low_threshold = 10
+        self.stock.save()
+        self._auth(self.owner)
+
+        with mock_patch('sync.signals.async_to_sync') as mocked:
+            self.client.patch(
+                f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'quantity': 3}, format='json',
+            )
+
+        self.assertTrue(mocked.called, 'Low-stock alert did not fire on a manual edit')
