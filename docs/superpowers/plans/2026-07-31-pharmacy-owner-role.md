@@ -12,10 +12,11 @@
 
 ## Global Constraints
 
-- Backend tests run from `backend/`: `python manage.py test <app>`.
+- Backend tests run from `backend/` using the project virtualenv: `./venv/Scripts/python.exe manage.py test <app>`. A bare `python` is not on PATH here and will fail with `ModuleNotFoundError: No module named 'django'`.
 - Flutter tests run from the repo root: `flutter test`.
 - Analyzer must stay clean: `dart analyze` reports "No issues found!".
 - The dev database is SQLite, which silently no-ops `select_for_update()`. Write the locking code correctly anyway — `sync/tests/test_stock_sync.py::test_concurrent_requests_do_not_lose_updates` already documents this and is expected to fail on SQLite. Do not "fix" it by removing the lock.
+- **Verified baseline: `sync` runs 17 tests with exactly ONE failure**, `test_concurrent_requests_do_not_lose_updates`. Any second failure means you broke something. Note that `test_missing_api_key_returns_401` and `test_invalid_api_key_returns_401` have stale docstrings claiming they fail — the bugs they describe were fixed in `sync/views.py` and both tests now pass. Believe the test run, not the docstring.
 - Role is derived via `hasattr(user, 'pharmacy_owner')`. Never add a stored `role` field.
 - Owner endpoints must re-scope their queryset to the owner's pharmacy on every request, so another pharmacy's row 404s rather than 403s.
 - Existing behavior in `sync/views.py` that must survive the Task 3 refactor: a delta driving stock below zero is clamped to 0, but the `StockTransaction` records the **requested** delta, and the response carries `note: 'Quantity was clamped to 0'`.
@@ -602,8 +603,8 @@ with:
 
 - [ ] **Step 7: Run the full sync suite**
 
-Run: `cd backend && python manage.py test sync pharmacy -v 2`
-Expected: PASS, except the three pre-existing known failures documented in `test_stock_sync.py` (`test_missing_api_key_returns_401`, `test_invalid_api_key_returns_401`, `test_concurrent_requests_do_not_lose_updates`). Confirm the failure list is exactly those three and no larger — if a fourth appears, the refactor broke something.
+Run: `cd backend && ./venv/Scripts/python.exe manage.py test sync pharmacy -v 2`
+Expected: PASS except the one pre-existing SQLite failure, `test_concurrent_requests_do_not_lose_updates`. Confirm the failure list is exactly that one and no larger — if a second appears, the refactor broke something. In particular `test_missing_api_key_returns_401` and `test_invalid_api_key_returns_401` currently PASS despite docstrings claiming otherwise; if either starts failing, that is a regression you caused.
 
 - [ ] **Step 8: Commit**
 
@@ -2119,4 +2120,6 @@ git commit -m "feat: pharmacy owner dashboard with stock editing"
 
 **Deliberately not covered:** the spec's note about `StockAlertService._wsBaseUrl` hardcoding `192.168.1.64`. It is flagged as out of scope there and stays out of scope here — Task 6 touches that file but not that line.
 
-**Known-failing tests that must stay failing:** `sync/tests/test_stock_sync.py`'s `test_missing_api_key_returns_401`, `test_invalid_api_key_returns_401`, and `test_concurrent_requests_do_not_lose_updates` are pre-existing documented failures. Task 3 Step 7 checks the failure list hasn't grown; do not "fix" them as part of this work.
+**Known-failing test that must stay failing:** `sync/tests/test_stock_sync.py::test_concurrent_requests_do_not_lose_updates` fails because SQLite has no row-level locking. Do not "fix" it by removing the lock. Task 3 Step 7 checks the failure list hasn't grown.
+
+This was corrected during execution: the plan originally claimed three known failures, taken from the test docstrings rather than from a run. `test_missing_api_key_returns_401` and `test_invalid_api_key_returns_401` both pass — the bugs their docstrings describe were fixed in `sync/views.py` and nobody updated the prose. Verified baseline is 17 tests, 1 failure.
