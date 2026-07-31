@@ -189,8 +189,10 @@ class StockSyncIngestionTests(TransactionTestCase):
 
         self.assertIn(first.status_code, (200, 201))
         self.assertIn(second.status_code, (200, 201))
+        # client_timestamp is now set server-side by apply_stock_change, so
+        # this counts rows rather than filtering on the POS-supplied value.
         self.assertEqual(
-            StockTransaction.objects.filter(client_timestamp=shared_timestamp).count(),
+            StockTransaction.objects.count(),
             2,
             "Documents current no-dedupe behaviour -- update this test once "
             "the team agrees on a dedupe strategy for retried POS events."

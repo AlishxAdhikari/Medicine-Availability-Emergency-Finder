@@ -1,5 +1,7 @@
 from math import asin, cos, radians, sin, sqrt
 
+from .models import PharmacyMedicineStock
+
 
 def haversine_km(lat1, lon1, lat2, lon2):
     """Great-circle distance between two lat/lng points, in kilometres.
@@ -34,3 +36,63 @@ def sort_by_proximity(queryset, lat, lng, radius_km=None):
         results.append(obj)
     results.sort(key=lambda o: o.distance_km)
     return results
+
+
+def apply_stock_change(pharmacy, medicine, *, absolute=None, delta=None,
+                       source, transaction_type, user=None):
+    """The single write path for stock quantity, used by both the owner API
+    and the POS sync endpoint.
+
+    Exactly one of `absolute` or `delta` must be given. The owner endpoints
+    pass `absolute` -- an owner counting a shelf knows the total, not the
+    difference -- and the POS passes `delta`, since it knows what moved.
+    Both are resolved to a final quantity *inside* the row lock, so neither
+    caller computes anything from a value it read before the lock existed.
+
+    Quantity is clamped at zero, but the StockTransaction records the delta
+    that was *requested*, not the clamped one: a POS dispensing 150 units
+    from a shelf of 100 is a real discrepancy, and rounding it away in the
+    ledger would hide it.
+
+    Writing the StockTransaction is also what makes the low-stock WebSocket
+    alert fire -- sync/signals.py hooks post_save on StockTransaction, not on
+    the stock row -- so any caller that skips this function silently loses
+    alerting.
+
+    Returns (stock, transaction, clamped).
+    """
+    if (absolute is None) == (delta is None):
+        raise ValueError('Pass exactly one of absolute= or delta=.')
+
+    from django.db import transaction as db_transaction
+    from django.utils import timezone
+
+    from sync.models import StockTransaction
+
+    with db_transaction.atomic():
+        stock, _ = PharmacyMedicineStock.objects.select_for_update().get_or_create(
+            pharmacy=pharmacy, medicine=medicine, defaults={'price': 0.0},
+        )
+
+        if absolute is not None:
+            requested_delta = absolute - stock.quantity
+            target = absolute
+        else:
+            requested_delta = delta
+            target = stock.quantity + delta
+
+        clamped = target < 0
+        stock.quantity = max(0, target)
+        stock.save(update_fields=['quantity'])
+
+        txn = StockTransaction.objects.create(
+            pharmacy=pharmacy,
+            medicine=medicine,
+            quantity_delta=requested_delta,
+            transaction_type=transaction_type,
+            source=source,
+            changed_by=user,
+            client_timestamp=timezone.now(),
+        )
+
+    return stock, txn, clamped
