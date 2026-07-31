@@ -1,3 +1,6 @@
+from decimal import Decimal, InvalidOperation
+
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.response import Response
@@ -6,6 +9,39 @@ from .models import Medicine, PharmacyMedicineStock
 from .permissions import IsPharmacyOwner
 from .serializers import OwnerStockSerializer
 from .services import apply_stock_change
+
+
+def _parse_quantity(raw):
+    """Returns (quantity, error_response). error_response is None on success."""
+    try:
+        quantity = int(raw)
+    except (TypeError, ValueError):
+        return None, Response({'quantity': ['A whole number is required.']},
+                               status=status.HTTP_400_BAD_REQUEST)
+    if quantity < 0:
+        return None, Response({'quantity': ['Quantity cannot be negative.']},
+                               status=status.HTTP_400_BAD_REQUEST)
+    return quantity, None
+
+
+def _parse_price(raw):
+    """Returns (price, error_response). error_response is None on success.
+
+    Mirrors _parse_quantity: malformed or negative input must be a 400, not
+    a 500 from a ValidationError/IntegrityError inside save().
+    """
+    if raw is None:
+        return None, Response({'price': ['Price cannot be null.']},
+                               status=status.HTTP_400_BAD_REQUEST)
+    try:
+        price = Decimal(str(raw))
+    except (InvalidOperation, TypeError, ValueError):
+        return None, Response({'price': ['A valid decimal number is required.']},
+                               status=status.HTTP_400_BAD_REQUEST)
+    if price < 0:
+        return None, Response({'price': ['Price cannot be negative.']},
+                               status=status.HTTP_400_BAD_REQUEST)
+    return price, None
 
 
 class OwnerStockViewSet(viewsets.ViewSet):
@@ -35,7 +71,12 @@ class OwnerStockViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
     def create(self, request):
-        medicine = get_object_or_404(Medicine, pk=request.data.get('medicine'))
+        try:
+            medicine_id = int(request.data.get('medicine'))
+        except (TypeError, ValueError):
+            return Response({'medicine': ['A valid medicine id is required.']},
+                            status=status.HTTP_400_BAD_REQUEST)
+        medicine = get_object_or_404(Medicine, pk=medicine_id)
 
         if PharmacyMedicineStock.objects.filter(
             pharmacy=self.pharmacy, medicine=medicine
@@ -45,47 +86,53 @@ class OwnerStockViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            quantity = int(request.data.get('quantity'))
-        except (TypeError, ValueError):
-            return Response({'quantity': ['A whole number is required.']},
-                            status=status.HTTP_400_BAD_REQUEST)
-        if quantity < 0:
-            return Response({'quantity': ['Quantity cannot be negative.']},
-                            status=status.HTTP_400_BAD_REQUEST)
+        quantity, error = _parse_quantity(request.data.get('quantity'))
+        if error is not None:
+            return error
 
-        stock, _, _ = apply_stock_change(
-            self.pharmacy, medicine, absolute=quantity,
-            source='MANUAL', transaction_type='ADJUSTED', user=request.user,
-        )
+        price = None
+        if 'price' in request.data:
+            price, error = _parse_price(request.data.get('price'))
+            if error is not None:
+                return error
 
-        price = request.data.get('price')
-        if price is not None:
-            stock.price = price
-            stock.save(update_fields=['price'])
+        with transaction.atomic():
+            stock, _, _ = apply_stock_change(
+                self.pharmacy, medicine, absolute=quantity,
+                source='MANUAL', transaction_type='ADJUSTED', user=request.user,
+            )
+
+            if price is not None:
+                stock.price = price
+                stock.save(update_fields=['price'])
 
         return Response(OwnerStockSerializer(stock).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, pk=None):
         stock = get_object_or_404(self.get_queryset(), pk=pk)
 
+        quantity = None
         if 'quantity' in request.data:
-            try:
-                quantity = int(request.data['quantity'])
-            except (TypeError, ValueError):
-                return Response({'quantity': ['A whole number is required.']},
-                                status=status.HTTP_400_BAD_REQUEST)
-            if quantity < 0:
-                return Response({'quantity': ['Quantity cannot be negative.']},
-                                status=status.HTTP_400_BAD_REQUEST)
-            stock, _, _ = apply_stock_change(
-                self.pharmacy, stock.medicine, absolute=quantity,
-                source='MANUAL', transaction_type='ADJUSTED', user=request.user,
-            )
+            quantity, error = _parse_quantity(request.data['quantity'])
+            if error is not None:
+                return error
 
+        price = None
         if 'price' in request.data:
-            stock.price = request.data['price']
-            stock.save(update_fields=['price'])
+            price, error = _parse_price(request.data['price'])
+            if error is not None:
+                return error
+
+        with transaction.atomic():
+            if quantity is not None:
+                stock, _, _ = apply_stock_change(
+                    self.pharmacy, stock.medicine, absolute=quantity,
+                    source='MANUAL', transaction_type='ADJUSTED', user=request.user,
+                )
+
+            if price is not None:
+                stock.price = price
+                stock.save(update_fields=['price'])
 
         return Response(OwnerStockSerializer(stock).data)
 

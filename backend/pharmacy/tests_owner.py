@@ -277,3 +277,186 @@ class OwnerStockApiTests(TestCase):
             )
 
         self.assertTrue(mocked.called, 'Low-stock alert did not fire on a manual edit')
+
+    # -- Fix round 1: price validation --------------------------------
+
+    def test_patch_rejects_malformed_price_with_400_not_500(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'price': 'abc'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(str(self.stock.price), '10.00')
+
+    def test_patch_rejects_null_price_with_400_not_500(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'price': None}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(str(self.stock.price), '10.00')
+
+    def test_patch_rejects_negative_price(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'price': -5}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(str(self.stock.price), '10.00')
+
+    def test_post_rejects_malformed_price_with_400_not_500(self):
+        new_medicine = Medicine.objects.create(
+            name='Ibuprofen 200mg', category='Analgesic',
+            dosage_form='Tablet', strength='200mg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 5, 'price': 'abc',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_post_rejects_negative_price(self):
+        new_medicine = Medicine.objects.create(
+            name='Cetirizine 10mg', category='Antihistamine',
+            dosage_form='Tablet', strength='10mg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 5, 'price': -1,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+
+    # -- Fix round 1: create/PATCH atomicity across quantity + price ---
+
+    def test_post_with_bad_price_leaves_no_stock_row_or_transaction_behind(self):
+        """A malformed price must not leave a half-applied write: no stock
+        row, no ledger entry, even though apply_stock_change() already
+        committed its own atomic block before the price step failed."""
+        new_medicine = Medicine.objects.create(
+            name='Domperidone 10mg', category='Antiemetic',
+            dosage_form='Tablet', strength='10mg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 5, 'price': 'abc',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            PharmacyMedicineStock.objects.filter(pharmacy=self.pharmacy, medicine=new_medicine).exists()
+        )
+        self.assertEqual(StockTransaction.objects.filter(medicine=new_medicine).count(), 0)
+
+    def test_patch_with_bad_price_does_not_apply_the_quantity_change(self):
+        """When quantity and price are sent together and price is bad, the
+        whole PATCH must fail cleanly -- no orphaned quantity change."""
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
+            {'quantity': 60, 'price': 'abc'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 100)
+        self.assertEqual(StockTransaction.objects.count(), 0)
+
+    # -- Fix round 1: malformed medicine id on POST ---------------------
+
+    def test_post_rejects_non_integer_medicine_id_with_400_not_500(self):
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': 'abc', 'quantity': 5, 'price': '8.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_post_rejects_missing_medicine_id_with_400(self):
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'quantity': 5, 'price': '8.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+
+    # -- Fix round 1: authorization boundary + quantity coverage --------
+
+    def test_owner_cannot_delete_another_pharmacys_row(self):
+        """404 rather than 403 on purpose, same as the PATCH case -- a 403
+        would confirm the row exists."""
+        other_pharmacy = make_pharmacy('Someone Elses')
+        foreign = PharmacyMedicineStock.objects.create(
+            pharmacy=other_pharmacy, medicine=self.medicine, quantity=7, price=5,
+        )
+        self._auth(self.owner)
+
+        response = self.client.delete(f'/api/v1/my-pharmacy/stock/{foreign.id}/')
+
+        self.assertEqual(response.status_code, 404)
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.quantity, 7)
+
+    def test_patch_rejects_negative_quantity(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'quantity': -1}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 100)
+
+    def test_patch_rejects_non_integer_quantity(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'quantity': 'abc'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 100)
+
+    def test_post_rejects_negative_quantity(self):
+        new_medicine = Medicine.objects.create(
+            name='Metformin 500mg', category='Antidiabetic',
+            dosage_form='Tablet', strength='500mg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': -3, 'price': '8.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_post_rejects_non_integer_quantity(self):
+        new_medicine = Medicine.objects.create(
+            name='Losartan 50mg', category='Antihypertensive',
+            dosage_form='Tablet', strength='50mg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 'abc', 'price': '8.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
