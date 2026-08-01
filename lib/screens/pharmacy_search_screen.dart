@@ -385,6 +385,13 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
     _watchedPharmacyId = topPharmacy.id;
     final stream = await _alertService.connect(topPharmacy.id);
     if (!mounted) return;
+    // A second search can start while the connect above is in flight. That
+    // call moves _watchedPharmacyId on and reconnects the shared service,
+    // which closes the stream we are holding. Without this check the
+    // superseded call would resume and overwrite _alertSubscription with a
+    // subscription to that dead stream, orphaning the live one and silently
+    // ending stock updates. We never subscribe, so nothing is leaked.
+    if (_watchedPharmacyId != topPharmacy.id) return;
     _alertSubscription = stream.listen(_onStockAlert);
   }
 

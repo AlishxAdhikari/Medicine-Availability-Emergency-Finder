@@ -51,4 +51,17 @@ void main() {
     expect(AppStateManager.instance.ownedPharmacyIdNotifier.value, 7);
     expect(AppStateManager.instance.ownedPharmacyNameNotifier.value, 'My Pharmacy');
   });
+
+  test('a snapshot id that came back as a double still restores', () {
+    // Snapshots are persisted as JSON, and a whole number can come back as a
+    // double. A hard `as int?` cast would throw here and take down the whole
+    // biometric-unlock path, where every sibling field degrades gracefully.
+    applyOwnerRoleFromSnapshot({
+      'isPharmacyOwner': true,
+      'ownedPharmacyId': 7.0,
+      'ownedPharmacyName': 'My Pharmacy',
+    });
+
+    expect(AppStateManager.instance.ownedPharmacyIdNotifier.value, 7);
+  });
 }

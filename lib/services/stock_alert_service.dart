@@ -42,6 +42,17 @@ class StockAlertService {
   StreamController<StockAlert>? _controller;
   bool _retriedAfterAuthFailure = false;
 
+  /// Bumped by every connect()/disconnect(). _attach captures it and rechecks
+  /// after each await, so work started for a superseded connection cannot
+  /// clobber a newer channel or leak a socket nobody holds a reference to.
+  int _generation = 0;
+
+  /// A socket that stayed open at least this long clearly authenticated
+  /// fine, so a 4401 after it is a *fresh* token expiry (access tokens live
+  /// 30 minutes) and deserves its own retry. A refresh/reject loop closes in
+  /// milliseconds and so never clears the flag.
+  static const Duration _provenConnectionAge = Duration(seconds: 30);
+
   /// Mirrors ApiClient.baseUrl's platform logic (see api_client.dart) but
   /// for the ws:// scheme and without the /api/v1 prefix, since the
   /// WebSocket route is mounted at the ASGI root (medalert_api/asgi.py),
@@ -64,20 +75,30 @@ class StockAlertService {
     disconnect(); // close any previous connection first -- one at a time
 
     _retriedAfterAuthFailure = false;
+    _generation++;
     // The controller is created here, not in _attach, so it survives a
     // reconnect -- the caller keeps listening to the same stream across a
     // token refresh and never sees the socket flap.
-    _controller = StreamController<StockAlert>.broadcast();
-    await _attach(pharmacyId);
-    return _controller!.stream;
+    final controller = StreamController<StockAlert>.broadcast();
+    _controller = controller;
+    await _attach(pharmacyId, _generation);
+    return controller.stream;
   }
 
-  Future<void> _attach(int pharmacyId) async {
+  Future<void> _attach(int pharmacyId, int generation) async {
     final token = await ApiClient.instance.accessToken;
+    // disconnect() (or another connect()) may have run during that await.
+    // Bail before opening a socket nothing would ever close.
+    if (_controller == null || generation != _generation) return;
+
     final uri = Uri.parse('$_wsBaseUrl/ws/stock/$pharmacyId/').replace(
       queryParameters: {'token': ?token},
     );
+    // Explicitly close whatever we are replacing. On the 4401 reconnect path
+    // the old channel is done but its sink is still ours to release.
+    _channel?.sink.close();
     _channel = WebSocketChannel.connect(uri);
+    final openedAt = DateTime.now();
 
     _channel!.stream.listen(
       (raw) {
@@ -93,6 +114,7 @@ class StockAlertService {
         // Connection dropped (server restarted, network blip, etc). The
         // stream just ends; the UI's listener should treat "no more
         // alerts" as normal rather than fatal.
+        if (generation != _generation) return; // superseded; not ours to close
         _controller?.close();
       },
       onDone: () async {
@@ -103,12 +125,27 @@ class StockAlertService {
         // silently going dead until the user navigates away and back.
         // Retry once only: if the refresh itself is what's failing, reopening
         // in a loop would hammer the server.
+        if (generation != _generation) return; // superseded; not ours to close
+
+        // This socket lived long enough to prove the last refresh worked, so
+        // give the new expiry its own retry instead of dying silently on a
+        // screen the user left open past a second token lifetime.
+        if (DateTime.now().difference(openedAt) >= _provenConnectionAge) {
+          _retriedAfterAuthFailure = false;
+        }
+
         if (_channel?.closeCode == 4401 && !_retriedAfterAuthFailure) {
           _retriedAfterAuthFailure = true;
           if (await ApiClient.instance.refreshAccessToken()) {
-            await _attach(pharmacyId);
+            // disconnect() -- possibly followed by a fresh connect() -- can
+            // have run during the refresh. Reattaching unconditionally would
+            // either resurrect a disconnected service or clobber the newly
+            // created channel, leaking a socket either way.
+            if (_controller == null || generation != _generation) return;
+            await _attach(pharmacyId, generation);
             return; // same controller, so the caller's stream stays alive
           }
+          if (_controller == null || generation != _generation) return;
         }
         _controller?.close();
       },
@@ -116,6 +153,9 @@ class StockAlertService {
   }
 
   void disconnect() {
+    // Invalidate any _attach still awaiting a token or a token refresh, so it
+    // cannot reopen a socket after this call.
+    _generation++;
     _channel?.sink.close();
     _channel = null;
     _controller?.close();
