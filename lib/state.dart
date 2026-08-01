@@ -356,7 +356,10 @@ Map<String, dynamic> profileToSnapshot(UserProfile p) {
 void applyOwnerRoleFromSnapshot(Map<String, dynamic> s) {
   AppStateManager.instance.setOwnerRole(
     isOwner: s['isPharmacyOwner'] as bool? ?? false,
-    pharmacyId: s['ownedPharmacyId'] as int?,
+    // `as num?` rather than `as int?`: a snapshot that round-tripped through
+    // JSON can hand back a double for a whole number, and a hard int cast
+    // would throw where every sibling field degrades to a default.
+    pharmacyId: (s['ownedPharmacyId'] as num?)?.toInt(),
     pharmacyName: s['ownedPharmacyName'] as String? ?? '',
   );
 }
