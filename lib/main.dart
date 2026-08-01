@@ -5,6 +5,7 @@ import 'screens/login_screen.dart';
 import 'screens/create_account_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/edit_medical_id_screen.dart';
+import 'screens/owner_dashboard_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,6 +34,7 @@ class MedAlertApp extends StatelessWidget {
             '/create_account': (context) => const CreateAccountScreen(),
             '/home': (context) => const AppShell(),
             '/edit_medical_id': (context) => const EditMedicalIdScreen(),
+            '/owner': (context) => const OwnerDashboardScreen(),
           },
         );
       },
