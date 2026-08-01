@@ -49,6 +49,13 @@ def apply_stock_change(pharmacy, medicine, *, absolute=None, delta=None,
     Both are resolved to a final quantity *inside* the row lock, so neither
     caller computes anything from a value it read before the lock existed.
 
+    The lock is select_for_update() on a real database. On SQLite -- which has
+    no row-level locking and where Django no-ops select_for_update() -- the
+    same serialisation comes from OPTIONS['transaction_mode'] = 'IMMEDIATE' in
+    settings.py, which takes the database's write lock at BEGIN. Either way the
+    read-then-write below is atomic against a concurrent writer; if you move
+    this code to another project, take that setting with it.
+
     Quantity is clamped at zero, but the StockTransaction records the delta
     that was *requested*, not the clamped one: a POS dispensing 150 units
     from a shelf of 100 is a real discrepancy, and rounding it away in the

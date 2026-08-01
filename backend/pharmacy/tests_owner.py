@@ -271,7 +271,7 @@ class OwnerStockApiTests(TestCase):
         self.stock.save()
         self._auth(self.owner)
 
-        with mock_patch('sync.signals.async_to_sync') as mocked:
+        with mock_patch('sync.signals.async_to_sync') as mocked,                 self.captureOnCommitCallbacks(execute=True):
             self.client.patch(
                 f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'quantity': 3}, format='json',
             )
@@ -474,7 +474,7 @@ class OwnerStockApiTests(TestCase):
 
         self._auth(self.owner)
 
-        with mock_patch('sync.signals.async_to_sync') as mocked:
+        with mock_patch('sync.signals.async_to_sync') as mocked,                 self.captureOnCommitCallbacks(execute=True):
             response = self.client.delete(
                 f'/api/v1/my-pharmacy/stock/{self.stock.id}/'
             )
@@ -496,7 +496,7 @@ class OwnerStockApiTests(TestCase):
         )
         self._auth(self.owner)
 
-        with mock_patch('sync.signals.async_to_sync') as mocked:
+        with mock_patch('sync.signals.async_to_sync') as mocked,                 self.captureOnCommitCallbacks(execute=True):
             response = self.client.post('/api/v1/my-pharmacy/stock/', {
                 'medicine': new_medicine.id, 'quantity': 5, 'price': '8.00',
             }, format='json')
@@ -518,7 +518,7 @@ class OwnerStockApiTests(TestCase):
             'medicine': new_medicine.id, 'quantity': 50, 'price': '8.00',
         }, format='json')
 
-        with mock_patch('sync.signals.async_to_sync') as mocked:
+        with mock_patch('sync.signals.async_to_sync') as mocked,                 self.captureOnCommitCallbacks(execute=True):
             self.client.patch(
                 f'/api/v1/my-pharmacy/stock/{created.data["id"]}/',
                 {'quantity': 2}, format='json',
@@ -534,7 +534,7 @@ class OwnerStockApiTests(TestCase):
         self.stock.low_threshold = 10
         self.stock.save()
 
-        with mock_patch('sync.signals.async_to_sync') as mocked:
+        with mock_patch('sync.signals.async_to_sync') as mocked,                 self.captureOnCommitCallbacks(execute=True):
             apply_stock_change(
                 self.pharmacy, self.medicine, delta=-95,
                 source='POS_SYNC', transaction_type='DISPENSED',
@@ -583,7 +583,7 @@ class OwnerStockApiTests(TestCase):
 
         # 30 is comfortably above the old threshold of 10 and at/below the new
         # one, so this alerts only if the new threshold was applied first.
-        with mock_patch('sync.signals.async_to_sync') as mocked:
+        with mock_patch('sync.signals.async_to_sync') as mocked,                 self.captureOnCommitCallbacks(execute=True):
             response = self.client.patch(
                 f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
                 {'quantity': 30, 'low_threshold': 50}, format='json',
