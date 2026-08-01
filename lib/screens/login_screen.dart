@@ -5,6 +5,14 @@ import '../services/biometric_service.dart';
 import '../services/medical_profile_service.dart';
 import '../state.dart';
 
+/// Picks the landing route from the `role` field on the login response
+/// (core/serializers.py's UserSerializer). Falls back to the user home when
+/// role is missing, so an older backend degrades to the read-only
+/// experience rather than opening an editor the account can't use.
+String routeForRole(Map<String, dynamic> user) {
+  return user['role'] == 'pharmacy_owner' ? '/owner' : '/home';
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -30,6 +38,7 @@ class _LoginScreenState extends State<LoginScreen> {
         final snapshot = await BiometricService.instance.getUserSnapshot();
         if (snapshot != null) {
           AppStateManager.instance.updateProfile(profileFromSnapshot(snapshot));
+          applyOwnerRoleFromSnapshot(snapshot);
         }
 
         try {
@@ -38,9 +47,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
         final p = AppStateManager.instance.userProfileNotifier.value;
         await BiometricService.instance.saveUserSnapshot(profileToSnapshot(p));
+        if (!mounted) return;
 
         AppStateManager.instance.setLoggedIn(true);
-        Navigator.pushReplacementNamed(context, '/home');
+        Navigator.pushReplacementNamed(
+          context,
+          AppStateManager.instance.isPharmacyOwnerNotifier.value ? '/owner' : '/home',
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -90,13 +103,23 @@ class _LoginScreenState extends State<LoginScreen> {
         await MedicalProfileService.instance.fetch();
       } catch (_) {}
 
+      final pharmacy = user['pharmacy'] as Map<String, dynamic>?;
+      AppStateManager.instance.setOwnerRole(
+        isOwner: user['role'] == 'pharmacy_owner',
+        pharmacyId: pharmacy?['id'] as int?,
+        pharmacyName: pharmacy?['name'] as String? ?? '',
+      );
+
+      // Re-snapshot after the role is set, so the biometric path restores it
+      // too -- otherwise a fingerprint login drops an owner on the user home.
       if (await BiometricService.instance.isEnabled) {
         final p = AppStateManager.instance.userProfileNotifier.value;
         await BiometricService.instance.saveUserSnapshot(profileToSnapshot(p));
       }
+      if (!mounted) return;
 
       AppStateManager.instance.setLoggedIn(true);
-      Navigator.pushReplacementNamed(context, '/home');
+      Navigator.pushReplacementNamed(context, routeForRole(user));
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -71,6 +71,7 @@ class _AppShellState extends State<AppShell> {
 
               await AuthService.instance.logout(keepBiometricSession: biometricOn);
 
+              AppStateManager.instance.clearOwnerRole();
               AppStateManager.instance.setLoggedIn(false);
               if (!biometricOn) {
                 AppStateManager.instance.resetProfile();
