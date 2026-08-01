@@ -48,6 +48,18 @@ String? validateQuantity(String? raw) {
   return null;
 }
 
+/// True when [error] says the caller is no longer this pharmacy's owner.
+///
+/// IsPharmacyOwner (backend/pharmacy/permissions.py) denies EVERY method on
+/// OwnerStockViewSet, not just list(), so any call in this screen can come
+/// back 403 the moment an admin unlinks the PharmacyOwner row. Treating that
+/// as an ordinary row error would strand the owner on a dashboard of stale
+/// stock with isPharmacyOwnerNotifier still true and every action failing the
+/// same way. Extracted as a pure predicate so the four call sites agree and
+/// so it can be tested without a device.
+bool isOwnershipRevoked(Object error) =>
+    error is ApiException && error.statusCode == 403;
+
 /// Validates the price field. Returns null when valid, else the message.
 String? validatePrice(String? raw) {
   final text = (raw ?? '').trim();
@@ -87,10 +99,35 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     _load();
   }
 
+  /// Demote to a plain consumer and leave. Called from every path that can
+  /// see a 403 -- see isOwnershipRevoked. Callers MUST have checked `mounted`
+  /// immediately before, because this touches State.context, and callers
+  /// inside a dialog MUST have dismissed the dialog first, or the
+  /// pushReplacement lands under a route that is still on top.
+  void _leaveAsRevokedOwner() {
+    AppStateManager.instance.clearOwnerRole();
+    Navigator.pushReplacementNamed(context, '/home');
+  }
+
+  /// Swaps a server response into the list in place. Must be called inside a
+  /// setState. No-ops if the row has since left the list.
+  void _replaceRow(OwnerStock updated) {
+    final index = _stock.indexWhere((s) => s.id == updated.id);
+    if (index != -1) _stock[index] = updated;
+  }
+
   Future<void> _load() async {
+    // Guarded like every other setState in this file: _load is called from
+    // initState, from Retry, from pull-to-refresh and from _addMedicine after
+    // an await, and the last of those can outlive the screen.
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
+      // Row errors describe the state we are about to replace. Leaving them
+      // would keep a stale message on a row whose real quantity and price the
+      // refresh just fetched.
+      _rowErrors.clear();
     });
     try {
       final stock = await OwnerStockService.instance.fetchStock();
@@ -103,9 +140,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       if (!mounted) return;
       // 403 means the owner link was removed while this session was open.
       // Drop back to the normal app rather than looping on an error.
-      if (e.statusCode == 403) {
-        AppStateManager.instance.clearOwnerRole();
-        Navigator.pushReplacementNamed(context, '/home');
+      if (isOwnershipRevoked(e)) {
+        _leaveAsRevokedOwner();
         return;
       }
       setState(() {
@@ -198,24 +234,41 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
 
       setState(() => _rowErrors.remove(row.id));
       try {
-        OwnerStock updated = row;
         // Two calls rather than one, because a quantity change goes through
         // the ledger and a price change doesn't -- keeping them separate means
         // a price correction never writes a phantom stock adjustment.
+        //
+        // Each response is committed to _stock AS IT ARRIVES, never batched to
+        // the end. If setQuantity succeeds and setPrice then fails on a
+        // dropped connection, the server has already recorded the new quantity
+        // and written an ADJUSTED StockTransaction for it. Holding the old row
+        // on screen would tell the owner nothing was written, and -- worse --
+        // the retry would compare the new quantity against the stale row,
+        // decide it still differs, and fire setQuantity a SECOND time, adding
+        // a delta-0 ADJUSTED row to the ledger this feature exists to keep
+        // honest. Committing per call keeps the displayed row exactly as
+        // server-authoritative as the calls that actually returned.
         if (quantity != row.quantity) {
-          updated = await OwnerStockService.instance.setQuantity(row.id, quantity);
+          final updated =
+              await OwnerStockService.instance.setQuantity(row.id, quantity);
+          if (!mounted) return;
+          setState(() => _replaceRow(updated));
         }
         if (priceHasChanged(row.price, price)) {
-          updated = await OwnerStockService.instance.setPrice(row.id, price);
+          final updated =
+              await OwnerStockService.instance.setPrice(row.id, price);
+          if (!mounted) return;
+          setState(() => _replaceRow(updated));
         }
-        if (!mounted) return;
-        setState(() {
-          final index = _stock.indexWhere((s) => s.id == row.id);
-          if (index != -1) _stock[index] = updated;
-        });
       } on ApiException catch (e) {
         if (!mounted) return;
-        // Leave the old values on screen -- the write didn't happen.
+        if (isOwnershipRevoked(e)) {
+          // The dialog is already closed by this point -- this catch sits
+          // after the `await showDialog` -- so State.context is on top.
+          _leaveAsRevokedOwner();
+          return;
+        }
+        // Leave whatever did commit on screen; only the failed call is undone.
         setState(() => _rowErrors[row.id] = e.message);
       } catch (_) {
         // A dropped connection throws SocketException, not ApiException.
@@ -257,14 +310,31 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     try {
       await OwnerStockService.instance.removeStock(row.id);
       if (!mounted) return;
-      setState(() => _stock.removeWhere((s) => s.id == row.id));
+      setState(() {
+        _stock.removeWhere((s) => s.id == row.id);
+        _rowErrors.remove(row.id);
+      });
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() => _rowErrors[row.id] = e.message);
+      if (isOwnershipRevoked(e)) {
+        _leaveAsRevokedOwner();
+        return;
+      }
+      _setRemoveError(row.id, e.message);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _rowErrors[row.id] = _offlineMessage);
+      _setRemoveError(row.id, _offlineMessage);
     }
+  }
+
+  /// A remove failure only has somewhere to show itself if the row is still
+  /// in the list. Double-tap Remove and the second DELETE 404s against a row
+  /// the first one already removed; writing _rowErrors[row.id] then would
+  /// leave an entry no ListTile ever reads -- invisible to the owner and
+  /// resurrected if that id ever came back. Drop it instead.
+  void _setRemoveError(int rowId, String message) {
+    if (!_stock.any((s) => s.id == rowId)) return;
+    setState(() => _rowErrors[rowId] = message);
   }
 
   Future<void> _addMedicine() async {
@@ -277,6 +347,12 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     String? dialogError;
     bool searching = false;
     bool submitting = false;
+    // Set by submit() when the POST comes back 403. The demote-and-leave has
+    // to happen from out here, after `await showDialog` returns: navigating
+    // from inside the dialog would push /home underneath a route that is
+    // still on top, and State.mounted (not ctx.mounted) is the right guard
+    // for the State.context that pushReplacementNamed needs.
+    bool ownershipRevoked = false;
 
     try {
       final added = await showDialog<bool>(
@@ -299,6 +375,15 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   if (!found.any((m) => m['id'] == selectedId)) selectedId = null;
                 });
               } catch (e) {
+                // No isOwnershipRevoked branch here, unlike every other
+                // handler in this file: searchMedicines hits /medicines/,
+                // which is a ReadOnlyModelViewSet with
+                // permission_classes = [AllowAny] (pharmacy/views.py:15-20)
+                // and is called without auth, so IsPharmacyOwner never runs
+                // on it and a 403 is not reachable. A 403 from an unrelated
+                // future cause should stay an in-dialog message, not eject
+                // the owner from a dashboard whose own API still works.
+                //
                 // Deliberately not `on ApiException` only -- a search run with
                 // no connection would otherwise leave the dialog spinning
                 // with no explanation.
@@ -331,6 +416,12 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                 Navigator.pop(ctx, true);
               } catch (e) {
                 if (!ctx.mounted) return;
+                if (isOwnershipRevoked(e)) {
+                  // Close the dialog and let the caller navigate.
+                  ownershipRevoked = true;
+                  Navigator.pop(ctx, false);
+                  return;
+                }
                 setDialogState(() {
                   submitting = false;
                   dialogError = e is ApiException ? e.message : _offlineMessage;
@@ -430,6 +521,11 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         ),
       );
 
+      if (!mounted) return;
+      if (ownershipRevoked) {
+        _leaveAsRevokedOwner();
+        return;
+      }
       if (added == true) await _load();
     } finally {
       searchController.dispose();
@@ -570,10 +666,24 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           final row = _stock[index];
           final rowError = _rowErrors[row.id];
           return ListTile(
+            isThreeLine: rowError != null,
             title: Text(row.medicineName),
-            subtitle: Text(
-              rowError ?? 'Qty ${row.quantity}  ·  Rs ${row.price}',
-              style: rowError != null ? TextStyle(color: theme.colorScheme.error) : null,
+            // The error is shown IN ADDITION to the quantity and price, never
+            // instead of them. Replacing them hid the only copy of the row's
+            // data on screen at exactly the moment the owner needs it: after
+            // a rejected edit, deciding whether to retry means knowing what
+            // the server currently holds.
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Qty ${row.quantity}  ·  Rs ${row.price}'),
+                if (rowError != null)
+                  Text(
+                    rowError,
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+              ],
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
