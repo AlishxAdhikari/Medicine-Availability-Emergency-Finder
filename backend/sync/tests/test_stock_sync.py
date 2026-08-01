@@ -16,6 +16,7 @@ what actually happens right now instead.
 """
 import threading
 
+from django.db import connection
 from django.test import TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -203,27 +204,28 @@ class StockSyncIngestionTests(TransactionTestCase):
     def test_concurrent_requests_do_not_lose_updates(self):
         """The non-functional requirement this exercises: two POS writes to
         the SAME pharmacy-medicine pair, fired at the same time, must not
-        clobber each other. This is what select_for_update() in the view is
-        supposed to guarantee.
+        clobber each other.
 
-        CURRENT BEHAVIOUR (bug, consistently reproducible -- 4/4 runs
-        failed in local testing): this fails. select_for_update() locks
-        rows at the database level, but SQLite -- the database this project
-        currently runs on (see medalert_api/settings.py, DATABASES) --
-        does not support row-level locking at all; Django silently no-ops
-        select_for_update() on SQLite rather than erroring, so the "lock"
-        the view relies on isn't actually happening. The result is a
-        classic lost-update race: two threads read the same starting
-        quantity before either writes back, and one thread's update
-        overwrites the other's instead of both being applied.
+        This used to fail, and the failure was real rather than cosmetic:
+        apply_stock_change() guards the read-modify-write with
+        select_for_update(), which locks rows on a real database but is a
+        documented no-op on SQLite (Django's backend sets
+        has_select_for_update = False). Ten threads therefore read the same
+        starting quantity and the last write won -- 99 instead of 90 -- with
+        "database table is locked" errors alongside it.
 
-        This is NOT a code logic bug in the view -- the locking code is
-        written correctly -- it's a database-choice limitation. The
-        proposal's target architecture (Section 2.5 / Table 4.1) specifies
-        PostgreSQL for production, and PostgreSQL DOES support row-level
-        locking, so this should pass once the project moves off SQLite.
-        Documenting it here so it's tracked rather than silently masked by
-        the dev database's behaviour.
+        What makes it pass now is OPTIONS['transaction_mode'] = 'IMMEDIATE' in
+        settings.py: every atomic block opens with BEGIN IMMEDIATE and takes
+        SQLite's write lock up front, so the read and the write are serialised
+        against other writers, and a waiting thread blocks (up to OPTIONS
+        ['timeout']) instead of racing. select_for_update() stays in the code
+        because it is what provides the same guarantee on PostgreSQL, which
+        Section 2.5 / Table 4.1 specifies for production.
+
+        Keep this as a TransactionTestCase against a file-backed test database
+        (see DATABASES['default']['TEST'] in settings.py) -- the shared-cache
+        in-memory default locks whole tables between connections and would fail
+        this for reasons that have nothing to do with the application.
         """
         num_threads = 10
         delta_per_request = -1
@@ -236,12 +238,20 @@ class StockSyncIngestionTests(TransactionTestCase):
                 'transaction_type': 'DISPENSED',
                 'timestamp': timezone.now().isoformat(),
             }
-            client = APIClient()
-            response = client.post(
-                SYNC_URL, payload, format='json',
-                HTTP_X_POS_API_KEY=self.pos_key.key,
-            )
-            results.append(response.status_code)
+            try:
+                client = APIClient()
+                response = client.post(
+                    SYNC_URL, payload, format='json',
+                    HTTP_X_POS_API_KEY=self.pos_key.key,
+                )
+                results.append(response.status_code)
+            finally:
+                # django.db.connection is thread-local, so each of these
+                # threads opens its own. Django only tears down the main
+                # thread's, and an SQLite connection left open holds the test
+                # database file -- which on Windows makes it undeletable and
+                # turns teardown into a PermissionError after a green run.
+                connection.close()
 
         threads = [threading.Thread(target=fire_request) for _ in range(num_threads)]
         for t in threads:

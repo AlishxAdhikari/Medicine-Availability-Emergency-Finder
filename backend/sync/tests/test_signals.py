@@ -10,12 +10,12 @@ boundary: it proves the signal's *decision logic* is right without needing
 a live consumer or Redis for every test run.
 
 IMPORTANT: the signal reads PharmacyMedicineStock.quantity fresh from the
-DB at the moment StockTransaction.objects.create() runs (post_save fires
-synchronously, inline with .create()). The real view (sync/views.py)
-updates the stock row's quantity FIRST, then creates the StockTransaction,
-both inside the same atomic block -- so these tests use a helper that
-mirrors that exact order, rather than creating the transaction against a
-stock row that was never actually updated.
+DB, and does so ON COMMIT rather than inline with the .create() that fires
+post_save -- an uncommitted quantity is one that may still be rolled back, and
+a broadcast cannot be taken back. The real view (sync/views.py) updates the
+stock row's quantity FIRST, then creates the StockTransaction, both inside the
+same atomic block -- so these tests use a helper that mirrors that exact order,
+and wraps it in captureOnCommitCallbacks so the deferred send actually runs.
 """
 from unittest.mock import patch
 
@@ -49,13 +49,21 @@ class ThresholdSignalTests(TestCase):
         that creation is what triggers the signal, and the signal reads
         whatever quantity is in the DB at that instant.
         """
-        stock.quantity = max(0, stock.quantity + delta)
-        stock.save()
-        return StockTransaction.objects.create(
-            pharmacy=self.pharmacy, medicine=self.medicine,
-            quantity_delta=delta, transaction_type=transaction_type, source=source,
-            client_timestamp=timezone.now(),
-        )
+        # captureOnCommitCallbacks because the alert is now raised via
+        # transaction.on_commit (sync/signals.py) -- inside a TestCase, which
+        # never commits, the callback would otherwise be registered and
+        # discarded, and every assertion below would pass or fail for the wrong
+        # reason. execute=True runs it at the end of this block, which is the
+        # commit point the real request has.
+        with self.captureOnCommitCallbacks(execute=True):
+            stock.quantity = max(0, stock.quantity + delta)
+            stock.save()
+            txn = StockTransaction.objects.create(
+                pharmacy=self.pharmacy, medicine=self.medicine,
+                quantity_delta=delta, transaction_type=transaction_type, source=source,
+                client_timestamp=timezone.now(),
+            )
+        return txn
 
     @patch('sync.signals.get_channel_layer')
     @patch('sync.signals.async_to_sync')
@@ -150,9 +158,10 @@ class ThresholdSignalTests(TestCase):
         # Deliberately no PharmacyMedicineStock row for this pair -- create
         # the StockTransaction directly (can't use _dispense(), which
         # requires an existing stock row).
-        StockTransaction.objects.create(
-            pharmacy=self.pharmacy, medicine=other_medicine,
-            quantity_delta=-1, transaction_type='DISPENSED', source='POS_SYNC',
-            client_timestamp=timezone.now(),
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            StockTransaction.objects.create(
+                pharmacy=self.pharmacy, medicine=other_medicine,
+                quantity_delta=-1, transaction_type='DISPENSED', source='POS_SYNC',
+                client_timestamp=timezone.now(),
+            )
         mock_async_to_sync.assert_not_called()
