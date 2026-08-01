@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medalert/screens/owner_dashboard_screen.dart';
+import 'package:medalert/services/api_client.dart';
 
 // Pure-helper tests only. The screen itself can't be pumped in a widget test:
 // OwnerStockService/PharmacyService both hang off ApiClient.instance, an
@@ -55,6 +56,31 @@ void main() {
 
     test('rejects a negative count', () {
       expect(validateQuantity('-1'), isNotNull);
+    });
+  });
+
+  group('isOwnershipRevoked', () {
+    test('is true only for a 403 ApiException', () {
+      // IsPharmacyOwner denies every method on OwnerStockViewSet, so any of
+      // _editRow / _removeRow / addMedicine can see this, not just the
+      // initial load.
+      expect(isOwnershipRevoked(ApiException(403, 'no permission')), isTrue);
+    });
+
+    test('is false for every other status', () {
+      // 400 is a rejected edit, 404 a double-tapped remove, 500 a server
+      // fault -- all of them stay row errors on a dashboard that still works.
+      expect(isOwnershipRevoked(ApiException(400, 'bad')), isFalse);
+      expect(isOwnershipRevoked(ApiException(401, 'unauthorized')), isFalse);
+      expect(isOwnershipRevoked(ApiException(404, 'gone')), isFalse);
+      expect(isOwnershipRevoked(ApiException(500, 'boom')), isFalse);
+    });
+
+    test('is false for a non-ApiException failure', () {
+      // A dropped connection is not a revoked role; ejecting the owner for
+      // one would be a far worse bug than the one this guards.
+      expect(isOwnershipRevoked(Exception('socket')), isFalse);
+      expect(isOwnershipRevoked(StateError('paginated payload')), isFalse);
     });
   });
 
