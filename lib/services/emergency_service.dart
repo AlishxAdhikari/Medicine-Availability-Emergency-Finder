@@ -36,16 +36,31 @@ class EmergencyService {
   /// The districts that actually have rows, so the UI's district filter can't
   /// drift out of sync with the data (a hardcoded list silently hides any
   /// district the backend knows about but the list doesn't mention).
+  ///
+  /// The district list is a refinement of the filter, not the screen's
+  /// payload, so it must never be able to take the ambulance/blood-bank lists
+  /// (or the SOS button) down with it: an app build running against a backend
+  /// that predates these endpoints gets a 404, and either call can fail on its
+  /// own transiently. Each failure degrades to "no districts from this
+  /// endpoint" and the caller falls back to its own list when nothing at all
+  /// comes back.
   Future<List<String>> fetchDistricts() async {
     final results = await Future.wait([
-      _client.get('/ambulances/districts/'),
-      _client.get('/blood-banks/districts/'),
+      _districtsFrom('/ambulances/districts/'),
+      _districtsFrom('/blood-banks/districts/'),
     ]);
-    final districts = <String>{
-      for (final list in results) ...(list as List).cast<String>(),
-    }.toList();
+    final districts = <String>{for (final list in results) ...list}.toList();
     districts.sort();
     return districts;
+  }
+
+  Future<List<String>> _districtsFrom(String path) async {
+    try {
+      final list = await _client.get(path);
+      return (list as List).cast<String>();
+    } catch (_) {
+      return const <String>[];
+    }
   }
 
   Future<List<app_state.Ambulance>> searchAmbulances({
@@ -70,6 +85,15 @@ class EmergencyService {
   // silently drops everything past row 20. Follows 'next' by page number
   // (ApiClient builds URLs from a path + query, so the absolute 'next' URL
   // isn't usable directly), capped so a paging bug can't loop forever.
+  //
+  // The cap is a runaway guard, not a supported limit: hitting it while the
+  // server still reports a next page means either that bug or a dataset this
+  // client can no longer read whole. Returning the truncated list there would
+  // reintroduce exactly the silent data loss this paging exists to fix --
+  // partial results that look complete -- so it throws instead and the screen
+  // shows its error state. Raising the ceiling properly means paging less
+  // often, i.e. giving the backend a page_size query param (DRF ignores one
+  // unless PAGE_SIZE_QUERY_PARAM is set, which settings.py doesn't set).
   static const int _maxPages = 25;
 
   Future<List<Map<String, dynamic>>> _fetchAllPages(
@@ -83,9 +107,12 @@ class EmergencyService {
         query: {...params, if (page > 1) 'page': page},
       );
       all.addAll((data['results'] as List).cast<Map<String, dynamic>>());
-      if (data['next'] == null) break;
+      if (data['next'] == null) return all;
     }
-    return all;
+    throw StateError(
+      'Paged past $_maxPages pages of $path and the server still reports more '
+      'results; refusing to return a truncated list.',
+    );
   }
 
   app_state.BloodBank _toBloodBank(Map<String, dynamic> json) {

@@ -10,9 +10,9 @@ class EmergencyScreen extends StatefulWidget {
 }
 
 class _EmergencyScreenState extends State<EmergencyScreen> {
-  // Only used when /districts/ comes back empty -- the chips still need
-  // something to render, but the backend is the source of truth. (A failed
-  // request shows the error state below instead, same as before.)
+  // Used when /districts/ comes back empty or unreachable -- the chips still
+  // need something to render, but the backend is the source of truth when it
+  // answers.
   static const List<String> _fallbackDistricts = ['Kathmandu', 'Lalitpur', 'Bhaktapur', 'Pokhara'];
 
   List<Ambulance> _ambulances = [];
@@ -21,8 +21,21 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   // The district the lists currently hold data for, so the notifier listener
   // can tell a real user selection from our own corrective assignment below.
   String? _loadedDistrict;
-  bool _loading = true;
+  // Only the very first load has nothing to draw yet and takes over the whole
+  // screen. Every load after that is scoped to the two list sections, so the
+  // district chips and the emergency call button stay on screen and usable
+  // while the lists reload.
+  bool _bootstrapping = true;
+  bool _loadingLists = true;
   String? _error;
+  // Bumped per load, so a response belonging to a superseded request (two chip
+  // taps in quick succession) can't land on top of a newer one's. Without it
+  // the lists can end up holding one district's rows while the chips and
+  // _loadedDistrict name another -- and that disagreement is sticky, because
+  // _onDistrictChanged early-returns on equality and re-tapping an already
+  // selected ChoiceChip reports selected: false, which the chip's handler
+  // drops.
+  int _requestId = 0;
 
   ValueNotifier<String> get _districtNotifier =>
       AppStateManager.instance.selectedDistrictNotifier;
@@ -51,40 +64,57 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   // client-side: the endpoints are paginated, so filtering a single fetched
   // page client-side hid whole districts once the dataset passed 20 rows.
   Future<void> _loadData() async {
+    final requestId = ++_requestId;
     setState(() {
-      _loading = true;
+      _loadingLists = true;
       _error = null;
     });
     try {
-      final fetched = await EmergencyService.instance.fetchDistricts();
-      final districts = fetched.isNotEmpty ? fetched : _fallbackDistricts;
+      // The set of districts comes from the data and doesn't change while the
+      // screen is open, so it's fetched once. Refetching it per chip tap would
+      // put a whole round trip in front of every list load, for an answer we
+      // already have.
+      if (_bootstrapping) {
+        final fetched = await EmergencyService.instance.fetchDistricts();
+        if (!mounted || requestId != _requestId) return;
+        // Chips and the SOS button can render as soon as the districts are
+        // known -- they don't need to wait on the lists below.
+        setState(() {
+          _districts = fetched.isNotEmpty ? fetched : _fallbackDistricts;
+          _bootstrapping = false;
+        });
+      }
 
       // A district that no longer exists in the data (or the initial default,
       // if the backend doesn't have it) would filter every list to empty.
       var district = _districtNotifier.value;
-      if (!districts.contains(district)) {
-        district = districts.first;
+      if (!_districts.contains(district)) {
+        district = _districts.first;
         // Set _loadedDistrict first so the listener treats this as already
         // loaded and doesn't kick off a second, redundant _loadData().
         _loadedDistrict = district;
+        // selectedDistrictNotifier is app-global, and this screen's State is
+        // disposed on every tab switch (home_screen.dart builds
+        // _tabs[_currentIndex], not an IndexedStack), so a load that outlives
+        // the screen must not still be steering the rest of the app.
+        if (!mounted) return;
         _districtNotifier.value = district;
       }
       _loadedDistrict = district;
 
       final ambulances = await EmergencyService.instance.searchAmbulances(district: district);
       final bloodBanks = await EmergencyService.instance.searchBloodBanks(district: district);
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() {
-        _districts = districts;
         _ambulances = ambulances;
         _bloodBanks = bloodBanks;
-        _loading = false;
+        _loadingLists = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() {
         _error = 'Could not load emergency services. Check your connection and try again.';
-        _loading = false;
+        _loadingLists = false;
       });
     }
   }
@@ -137,28 +167,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final state = AppStateManager.instance;
 
-    if (_loading) {
+    // Nothing to draw at all yet -- not even the district chips. Every later
+    // load keeps the shell below on screen and spins only the lists.
+    if (_bootstrapping) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-                const SizedBox(height: 12),
-                Text(_error!, textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
-              ],
-            ),
-          ),
-        ),
-      );
     }
 
     return Scaffold(
@@ -253,36 +265,68 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Split Grid or vertical list
-            LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.maxWidth > 700) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _buildAmbulancesSection(context),
-                      ),
-                      const SizedBox(width: 24),
-                      Expanded(
-                        child: _buildBloodBanksSection(context),
-                      ),
-                    ],
-                  );
-                } else {
-                  return Column(
-                    children: [
-                      _buildAmbulancesSection(context),
-                      const SizedBox(height: 24),
-                      _buildBloodBanksSection(context),
-                    ],
-                  );
-                }
-              },
-            ),
+            // Split grid or vertical list -- or, when the load failed, the
+            // error in their place. A failure only takes out the two lists;
+            // the chips and the emergency call button above stay usable.
+            if (_error != null)
+              _buildErrorSection(context)
+            else
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth > 700) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: _buildAmbulancesSection(context),
+                        ),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          child: _buildBloodBanksSection(context),
+                        ),
+                      ],
+                    );
+                  } else {
+                    return Column(
+                      children: [
+                        _buildAmbulancesSection(context),
+                        const SizedBox(height: 24),
+                        _buildBloodBanksSection(context),
+                      ],
+                    );
+                  }
+                },
+              ),
             const SizedBox(height: 64), // Padding at bottom for navigation bar
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildErrorSection(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+          const SizedBox(height: 12),
+          Text(_error!, textAlign: TextAlign.center),
+          const SizedBox(height: 12),
+          ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildListLoader() {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24.0),
+        child: CircularProgressIndicator(),
       ),
     );
   }
@@ -310,6 +354,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
         ValueListenableBuilder<String>(
           valueListenable: state.selectedDistrictNotifier,
           builder: (context, district, _) {
+            if (_loadingLists) return _buildListLoader();
+
             // Already filtered by the API's ?district= -- see _loadData().
             final filteredAmbulances = _ambulances;
 
@@ -550,6 +596,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             return ValueListenableBuilder<String>(
               valueListenable: state.selectedDistrictNotifier,
               builder: (context, district, _) {
+                if (_loadingLists) return _buildListLoader();
+
                 // Already filtered by the API's ?district= -- see _loadData().
                 final filteredBanks = _bloodBanks;
 
