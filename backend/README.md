@@ -72,6 +72,7 @@ cp ../.env.example .env         # then fill in your own values
 python manage.py migrate
 python manage.py createsuperuser   # optional, for /admin/
 python manage.py seed_pharmacies   # optional, populates sample pharmacies/medicines/stock
+python manage.py seed_emergency    # optional, populates sample ambulances/blood banks
 python manage.py runserver
 ```
 

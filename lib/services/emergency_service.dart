@@ -44,22 +44,36 @@ class EmergencyService {
   /// own transiently. Each failure degrades to "no districts from this
   /// endpoint" and the caller falls back to its own list when nothing at all
   /// comes back.
-  Future<List<String>> fetchDistricts() async {
+  ///
+  /// [complete] is false when either endpoint failed, because the union alone
+  /// can't tell a whole answer from half of one: if /ambulances/districts/
+  /// answers and /blood-banks/districts/ 404s, the result is non-empty and
+  /// looks authoritative while silently omitting every blood-bank-only
+  /// district -- the exact failure these endpoints exist to prevent. Callers
+  /// may still show an incomplete list (some real districts beat none), but
+  /// must not treat it as settled.
+  Future<({List<String> districts, bool complete})> fetchDistricts() async {
     final results = await Future.wait([
       _districtsFrom('/ambulances/districts/'),
       _districtsFrom('/blood-banks/districts/'),
     ]);
-    final districts = <String>{for (final list in results) ...list}.toList();
+    final districts = <String>{for (final list in results) ...?list}.toList();
     districts.sort();
-    return districts;
+    return (districts: districts, complete: !results.contains(null));
   }
 
-  Future<List<String>> _districtsFrom(String path) async {
+  /// Null means this endpoint failed, as distinct from an empty list, which
+  /// means it answered and has no districts of its own.
+  Future<List<String>?> _districtsFrom(String path) async {
     try {
       final list = await _client.get(path);
-      return (list as List).cast<String>();
+      // List.from, not .cast(): cast() checks elements lazily on iteration, so
+      // a malformed payload (a null or a number among the districts) would
+      // throw at the caller's fold instead of here, escaping this catch and
+      // taking the whole screen down with it.
+      return List<String>.from(list as List);
     } catch (_) {
-      return const <String>[];
+      return null;
     }
   }
 

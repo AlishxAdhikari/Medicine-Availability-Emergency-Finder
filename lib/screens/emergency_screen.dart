@@ -26,8 +26,17 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   // district chips and the emergency call button stay on screen and usable
   // while the lists reload.
   bool _bootstrapping = true;
+  // Whether the districts came from the backend. _bootstrapping can't stand in
+  // for this: it's cleared as soon as there is something to draw, including
+  // when what got drawn is _fallbackDistricts. Keeping the two separate is what
+  // lets Retry ask for the real districts again after an outage.
+  bool _districtsLoaded = false;
   bool _loadingLists = true;
   String? _error;
+  // Whether _error is worth pressing a button about. Not every failure is
+  // transient, and a Retry that re-runs the same request against the same data
+  // is a button that is guaranteed to fail -- worse than no button.
+  bool _canRetry = true;
   // Bumped per load, so a response belonging to a superseded request (two chip
   // taps in quick succession) can't land on top of a newer one's. Without it
   // the lists can end up holding one district's rows while the chips and
@@ -68,19 +77,29 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     setState(() {
       _loadingLists = true;
       _error = null;
+      _canRetry = true;
     });
     try {
       // The set of districts comes from the data and doesn't change while the
       // screen is open, so it's fetched once. Refetching it per chip tap would
       // put a whole round trip in front of every list load, for an answer we
       // already have.
-      if (_bootstrapping) {
+      if (!_districtsLoaded) {
         final fetched = await EmergencyService.instance.fetchDistricts();
         if (!mounted || requestId != _requestId) return;
         // Chips and the SOS button can render as soon as the districts are
-        // known -- they don't need to wait on the lists below.
+        // known -- they don't need to wait on the lists below. Even a partial
+        // answer is worth showing: real districts, however few, beat a
+        // hardcoded list that may not match the data at all.
         setState(() {
-          _districts = fetched.isNotEmpty ? fetched : _fallbackDistricts;
+          _districts =
+              fetched.districts.isNotEmpty ? fetched.districts : _fallbackDistricts;
+          // Only a whole, non-empty answer settles the district list. An empty
+          // result means the backend was unreachable (fetchDistricts swallows
+          // its own failures), and an incomplete one means we're showing a
+          // truncated set -- pinning either would leave Retry nothing to
+          // re-fetch once the backend is back, for the life of the screen.
+          _districtsLoaded = fetched.complete && fetched.districts.isNotEmpty;
           _bootstrapping = false;
         });
       }
@@ -113,8 +132,24 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     } catch (e) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
-        _error = 'Could not load emergency services. Check your connection and try again.';
+        // _fetchAllPages throws StateError when it pages past its runaway cap
+        // with the server still reporting more results. That's a data-volume
+        // problem, not a connectivity one: retrying re-runs the same paging
+        // over the same rows and fails identically every time. Reporting it as
+        // a connection error would send the user to check their wifi, and
+        // offering Retry would hand them a button that cannot work.
+        _canRetry = e is! StateError;
+        _error = _canRetry
+            ? 'Could not load emergency services. Check your connection and try again.'
+            : 'Too many emergency services in ${_loadedDistrict ?? 'this district'} '
+                'to load at once. Pick another district above.';
         _loadingLists = false;
+        // build() draws nothing but a spinner while _bootstrapping is set, so a
+        // failure on the first load has to clear it too -- otherwise the error
+        // and its Retry button are rendered behind a spinner that never stops.
+        // The chips fall back to _fallbackDistricts, which is enough shell to
+        // hang the error state off.
+        _bootstrapping = false;
       });
     }
   }
@@ -315,8 +350,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
           Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
           const SizedBox(height: 12),
           Text(_error!, textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
+          if (_canRetry) ...[
+            const SizedBox(height: 12),
+            ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
+          ],
         ],
       ),
     );

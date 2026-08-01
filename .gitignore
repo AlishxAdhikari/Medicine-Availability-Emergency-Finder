@@ -44,3 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 .venv/
+
+# Backend (Django) -- the dev database is a build artifact, not source. It is
+# rebuilt by `manage.py migrate` plus the seed_* commands (see backend/README.md),
+# so tracking it only produces unreviewable binary diffs in unrelated commits
+# and conflicts for anyone running migrations.
+*.sqlite3
+*.sqlite3-journal
