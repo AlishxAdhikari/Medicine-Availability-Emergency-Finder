@@ -45,6 +45,24 @@ class PharmacyService {
     return pharmacies;
   }
 
+  /// GET /api/v1/medicines/?search= -- the catalog the owner picks from when
+  /// adding a medicine their pharmacy doesn't stock yet.
+  ///
+  /// Reads `['results']` because MedicineViewSet is a ReadOnlyModelViewSet
+  /// (pharmacy/views.py:15), so it goes through GenericAPIView and DOES pick
+  /// up REST_FRAMEWORK's DEFAULT_PAGINATION_CLASS / PAGE_SIZE 20. That is the
+  /// opposite of /my-pharmacy/stock/, whose bare ViewSet returns a naked list
+  /// -- do not copy this shape across to that one.
+  ///
+  /// Only page one is read. That is deliberate and safe here in a way it is
+  /// not for the owner's own stock: this backs a type-ahead picker where the
+  /// user narrows the query until the medicine they want is visible, so 20
+  /// candidates is a UI cap, not silent data loss.
+  Future<List<Map<String, dynamic>>> searchMedicines(String query) async {
+    final data = await _client.get('/medicines/', query: {'search': query});
+    return (data['results'] as List).cast<Map<String, dynamic>>();
+  }
+
   Future<app_state.Pharmacy> _toPharmacy(Map<String, dynamic> json) async {
     List<Map<String, dynamic>> items = [];
     try {
