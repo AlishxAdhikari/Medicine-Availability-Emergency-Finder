@@ -15,6 +15,14 @@ def check_threshold(sender, instance, created, **kwargs):
     if not created:
         return
 
+    # Set by apply_stock_change(alert=False) -- a ledger row the caller has
+    # already established is not worth waking clients for (a row being deleted,
+    # or a row being created by the owner who is looking at it). Read off the
+    # instance rather than from the DB because it is deliberately not a stored
+    # field: it describes this one write, not the transaction forever.
+    if getattr(instance, 'skip_low_stock_alert', False):
+        return
+
     try:
         stock = PharmacyMedicineStock.objects.get(
             pharmacy=instance.pharmacy, medicine=instance.medicine

@@ -9,12 +9,20 @@ class OwnerStock {
   final int quantity;
   final String price;
 
+  /// The quantity at or below which the backend pushes a low-stock alert
+  /// (sync/signals.py's check_threshold). Read strictly, not defaulted like
+  /// [price]: this one is editable, and inventing a value the server did not
+  /// send would let the owner PATCH a threshold back onto the row that they
+  /// never actually chose.
+  final int lowThreshold;
+
   OwnerStock({
     required this.id,
     required this.medicineId,
     required this.medicineName,
     required this.quantity,
     required this.price,
+    required this.lowThreshold,
   });
 
   factory OwnerStock.fromJson(Map<String, dynamic> json) {
@@ -24,6 +32,7 @@ class OwnerStock {
       medicineId: medicine['id'] as int,
       medicineName: medicine['name'] as String,
       quantity: json['quantity'] as int,
+      lowThreshold: json['low_threshold'] as int,
       // DRF renders DecimalField as a string. The server cannot actually omit
       // this key or send null -- PharmacyMedicineStock.price is a non-nullable
       // DecimalField with no model default, and apply_stock_change() creates
@@ -110,15 +119,29 @@ class OwnerStockService {
     return OwnerStock.fromJson(Map<String, dynamic>.from(data as Map));
   }
 
+  /// Sets the level at which this medicine starts raising low-stock alerts.
+  /// Sent on its own rather than folded into setQuantity, so the owner can
+  /// retune the alert without the server writing a stock adjustment for it.
+  Future<OwnerStock> setLowThreshold(int stockId, int threshold) async {
+    final data = await _client.patch(
+      '/my-pharmacy/stock/$stockId/', {'low_threshold': threshold}, auth: true,
+    );
+    return OwnerStock.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
   Future<OwnerStock> addMedicine({
     required int medicineId,
     required int quantity,
     required String price,
+    int? lowThreshold,
   }) async {
     final data = await _client.post('/my-pharmacy/stock/', {
       'medicine': medicineId,
       'quantity': quantity,
       'price': price,
+      // Omitted rather than guessed when the owner leaves it blank, so the
+      // server's own default (10) stays the single source of that number.
+      'low_threshold': ?lowThreshold,
     }, auth: true);
     return OwnerStock.fromJson(Map<String, dynamic>.from(data as Map));
   }

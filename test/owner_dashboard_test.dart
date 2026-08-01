@@ -7,6 +7,29 @@ import 'package:medalert/services/api_client.dart';
 // uninjectable singleton, which is the same reason pharmacy_service_test.dart
 // is gated behind RUN_BACKEND_TESTS.
 void main() {
+  group('validateLowThreshold', () {
+    test('accepts a whole number, including zero', () {
+      expect(validateLowThreshold('25'), isNull);
+      // "Only tell me when it runs out" is a legitimate setting, not an error.
+      expect(validateLowThreshold('0'), isNull);
+      expect(validateLowThreshold('  7 '), isNull);
+    });
+
+    test('accepts blank, which means leave the threshold alone', () {
+      // The add dialog sends no low_threshold at all when this is empty, so
+      // the server default stands; the edit dialog treats it as unchanged.
+      expect(validateLowThreshold(''), isNull);
+      expect(validateLowThreshold(null), isNull);
+      expect(validateLowThreshold('   '), isNull);
+    });
+
+    test('rejects text and negatives rather than silently sending them', () {
+      expect(validateLowThreshold('ten'), isNotNull);
+      expect(validateLowThreshold('2.5'), isNotNull);
+      expect(validateLowThreshold('-1'), isNotNull);
+    });
+  });
+
   group('priceHasChanged', () {
     test('reports no change when the same number is spelled differently', () {
       // The phantom-write case: DRF sends "10.50", the owner types "10.5".
