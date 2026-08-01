@@ -9,6 +9,7 @@ void main() {
         'medicine': {'id': 11, 'name': 'Paracetamol 500mg'},
         'quantity': 42,
         'price': '10.50',
+        'low_threshold': 10,
       });
 
       expect(stock.id, 3);
@@ -16,6 +17,32 @@ void main() {
       expect(stock.medicineName, 'Paracetamol 500mg');
       expect(stock.quantity, 42);
       expect(stock.price, '10.50');
+      expect(stock.lowThreshold, 10);
+    });
+
+    test('reads low_threshold strictly rather than assuming the default', () {
+      // Unlike price, this one is editable: the edit dialog pre-fills it and
+      // PATCHes back what it holds. Defaulting an absent key to 10 would mean
+      // an owner who runs a 500-box threshold could silently overwrite it with
+      // a number this client made up.
+      final stock = OwnerStock.fromJson({
+        'id': 6,
+        'medicine': {'id': 14, 'name': 'Metformin 500mg'},
+        'quantity': 900,
+        'price': '3.00',
+        'low_threshold': 500,
+      });
+
+      expect(stock.lowThreshold, 500);
+      expect(
+        () => OwnerStock.fromJson({
+          'id': 7,
+          'medicine': {'id': 15, 'name': 'Losartan 50mg'},
+          'quantity': 12,
+          'price': '4.00',
+        }),
+        throwsA(isA<TypeError>()),
+      );
     });
 
     test('defensively defaults an absent price the server cannot omit', () {
@@ -28,6 +55,7 @@ void main() {
         'id': 4,
         'medicine': {'id': 12, 'name': 'Amoxicillin 250mg'},
         'quantity': 0,
+        'low_threshold': 10,
       });
 
       expect(stock.price, '0');
@@ -42,6 +70,7 @@ void main() {
           'medicine': {'id': 11, 'name': 'Paracetamol 500mg'},
           'quantity': 42,
           'price': '10.50',
+          'low_threshold': 10,
         },
       ]);
 
@@ -65,6 +94,7 @@ void main() {
             'medicine': {'id': 13, 'name': 'Ibuprofen 400mg'},
             'quantity': 7,
             'price': '25.00',
+            'low_threshold': 4,
           },
         ],
       });
@@ -90,6 +120,7 @@ void main() {
               'medicine': {'id': 13, 'name': 'Ibuprofen 400mg'},
               'quantity': 7,
               'price': '25.00',
+              'low_threshold': 4,
             },
           ],
         }),

@@ -11,17 +11,29 @@ from .serializers import OwnerStockSerializer
 from .services import apply_stock_change
 
 
-def _parse_quantity(raw):
-    """Returns (quantity, error_response). error_response is None on success."""
+def _parse_non_negative_int(raw, field, label):
+    """Returns (value, error_response). error_response is None on success."""
     try:
-        quantity = int(raw)
+        value = int(raw)
     except (TypeError, ValueError):
-        return None, Response({'quantity': ['A whole number is required.']},
+        return None, Response({field: ['A whole number is required.']},
                                status=status.HTTP_400_BAD_REQUEST)
-    if quantity < 0:
-        return None, Response({'quantity': ['Quantity cannot be negative.']},
+    if value < 0:
+        return None, Response({field: [f'{label} cannot be negative.']},
                                status=status.HTTP_400_BAD_REQUEST)
-    return quantity, None
+    return value, None
+
+
+def _parse_quantity(raw):
+    return _parse_non_negative_int(raw, 'quantity', 'Quantity')
+
+
+def _parse_low_threshold(raw):
+    """The quantity at or below which sync/signals.py alerts. Owner-settable
+    because it is the one number the whole alerting feature keys off, and a
+    pharmacy that turns over 500 boxes a week is not served by the model's
+    default of 10."""
+    return _parse_non_negative_int(raw, 'low_threshold', 'Low-stock threshold')
 
 
 def _parse_price(raw):
@@ -96,15 +108,33 @@ class OwnerStockViewSet(viewsets.ViewSet):
             if error is not None:
                 return error
 
+        low_threshold = None
+        if 'low_threshold' in request.data:
+            low_threshold, error = _parse_low_threshold(request.data['low_threshold'])
+            if error is not None:
+                return error
+
         with transaction.atomic():
+            # alert=False: the opening quantity is not news. low_threshold
+            # defaults to 10, so without this every medicine added with a
+            # single-digit opening count -- an ordinary thing to do -- pushed a
+            # "low stock" alert to every client watching this pharmacy, about a
+            # number the owner had just finished typing.
             stock, _, _ = apply_stock_change(
                 self.pharmacy, medicine, absolute=quantity,
                 source='MANUAL', transaction_type='ADJUSTED', user=request.user,
+                alert=False,
             )
 
+            update_fields = []
             if price is not None:
                 stock.price = price
-                stock.save(update_fields=['price'])
+                update_fields.append('price')
+            if low_threshold is not None:
+                stock.low_threshold = low_threshold
+                update_fields.append('low_threshold')
+            if update_fields:
+                stock.save(update_fields=update_fields)
 
         return Response(OwnerStockSerializer(stock).data, status=status.HTTP_201_CREATED)
 
@@ -123,7 +153,25 @@ class OwnerStockViewSet(viewsets.ViewSet):
             if error is not None:
                 return error
 
+        low_threshold = None
+        if 'low_threshold' in request.data:
+            low_threshold, error = _parse_low_threshold(request.data['low_threshold'])
+            if error is not None:
+                return error
+
         with transaction.atomic():
+            # Threshold first, deliberately. sync/signals.py reads
+            # low_threshold off the row when the transaction lands, so a PATCH
+            # that raises the threshold and drops the quantity in one call has
+            # to have written the new threshold before apply_stock_change runs
+            # -- otherwise the alert is judged against the value the owner just
+            # replaced. (A threshold change on its own writes no transaction
+            # and so raises no alert, even if it puts an existing quantity into
+            # the low band: alerts hang off movement, by design.)
+            if low_threshold is not None:
+                stock.low_threshold = low_threshold
+                stock.save(update_fields=['low_threshold'])
+
             if quantity is not None:
                 stock, _, _ = apply_stock_change(
                     self.pharmacy, stock.medicine, absolute=quantity,
@@ -142,9 +190,16 @@ class OwnerStockViewSet(viewsets.ViewSet):
         # Zero it through the ledger first, so removing a row that still had
         # stock on it doesn't vanish from the audit log. The transaction holds
         # its own FKs and survives the row's deletion.
+        #
+        # alert=False, because this zero is bookkeeping, not a shortage. Left
+        # alerting, every removal pushed "critical, 0 left" for a medicine that
+        # ceased to exist a millisecond later -- telling every watching client
+        # to go and buy the one thing this pharmacy had just declared it no
+        # longer carries.
         apply_stock_change(
             self.pharmacy, stock.medicine, absolute=0,
             source='MANUAL', transaction_type='ADJUSTED', user=request.user,
+            alert=False,
         )
         stock.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

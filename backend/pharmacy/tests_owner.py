@@ -460,3 +460,200 @@ class OwnerStockApiTests(TestCase):
         }, format='json')
 
         self.assertEqual(response.status_code, 400)
+
+    # -- Fix round 2: alerts that were firing on non-shortages -----------
+
+    def test_delete_does_not_broadcast_a_low_stock_alert(self):
+        """Removing a medicine is 'we stopped carrying this', not 'we are
+        nearly out'. The zeroing transaction still has to reach the ledger --
+        test_delete_zeroes_then_removes_the_row covers that -- but pushing
+        'critical, 0 left' about a row that ceases to exist a millisecond later
+        points every watching client at the one thing this pharmacy just said
+        it no longer stocks."""
+        from unittest.mock import patch as mock_patch
+
+        self._auth(self.owner)
+
+        with mock_patch('sync.signals.async_to_sync') as mocked:
+            response = self.client.delete(
+                f'/api/v1/my-pharmacy/stock/{self.stock.id}/'
+            )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(mocked.called, 'Deleting a medicine raised a shortage alert')
+        # The ledger entry is not what was suppressed -- only the broadcast.
+        self.assertEqual(StockTransaction.objects.count(), 1)
+
+    def test_adding_a_medicine_does_not_broadcast_a_low_stock_alert(self):
+        """low_threshold defaults to 10, so an opening count of 5 -- an
+        entirely ordinary thing to type -- used to alert on a number the owner
+        was still looking at."""
+        from unittest.mock import patch as mock_patch
+
+        new_medicine = Medicine.objects.create(
+            name='Omeprazole 20mg', category='Antacid',
+            dosage_form='Capsule', strength='20mg',
+        )
+        self._auth(self.owner)
+
+        with mock_patch('sync.signals.async_to_sync') as mocked:
+            response = self.client.post('/api/v1/my-pharmacy/stock/', {
+                'medicine': new_medicine.id, 'quantity': 5, 'price': '8.00',
+            }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertFalse(mocked.called, 'Adding a medicine raised a shortage alert')
+
+    def test_a_later_edit_still_alerts_after_a_suppressed_create(self):
+        """The suppression is per-write, not sticky: the row that was added
+        quietly must still alert the first time its quantity actually drops."""
+        from unittest.mock import patch as mock_patch
+
+        new_medicine = Medicine.objects.create(
+            name='Ranitidine 150mg', category='Antacid',
+            dosage_form='Tablet', strength='150mg',
+        )
+        self._auth(self.owner)
+        created = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 50, 'price': '8.00',
+        }, format='json')
+
+        with mock_patch('sync.signals.async_to_sync') as mocked:
+            self.client.patch(
+                f'/api/v1/my-pharmacy/stock/{created.data["id"]}/',
+                {'quantity': 2}, format='json',
+            )
+
+        self.assertTrue(mocked.called, 'Low-stock alert stopped firing on real edits')
+
+    def test_pos_writes_still_alert(self):
+        """alert=False is opt-in per call. Nothing about these fixes may
+        quieten the POS path, which is where most real shortages come from."""
+        from unittest.mock import patch as mock_patch
+
+        self.stock.low_threshold = 10
+        self.stock.save()
+
+        with mock_patch('sync.signals.async_to_sync') as mocked:
+            apply_stock_change(
+                self.pharmacy, self.medicine, delta=-95,
+                source='POS_SYNC', transaction_type='DISPENSED',
+            )
+
+        self.assertTrue(mocked.called)
+
+    # -- Fix round 2: owner-settable low_threshold -----------------------
+
+    def test_patch_sets_the_low_threshold(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
+            {'low_threshold': 40}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['low_threshold'], 40)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.low_threshold, 40)
+
+    def test_threshold_change_alone_writes_no_stock_transaction(self):
+        """Retuning an alert is not stock movement, and logging it as an
+        ADJUSTED delta-0 row would be noise in the ledger the audit trail
+        exists to keep readable."""
+        self._auth(self.owner)
+
+        self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
+            {'low_threshold': 40}, format='json',
+        )
+
+        self.assertEqual(StockTransaction.objects.count(), 0)
+
+    def test_a_raised_threshold_applies_to_the_quantity_in_the_same_patch(self):
+        """Ordering test. The signal reads low_threshold off the row when the
+        transaction lands, so the threshold has to be written BEFORE
+        apply_stock_change runs -- otherwise one PATCH carrying both is judged
+        against the value the owner just replaced."""
+        from unittest.mock import patch as mock_patch
+
+        self.stock.low_threshold = 10
+        self.stock.save()
+        self._auth(self.owner)
+
+        # 30 is comfortably above the old threshold of 10 and at/below the new
+        # one, so this alerts only if the new threshold was applied first.
+        with mock_patch('sync.signals.async_to_sync') as mocked:
+            response = self.client.patch(
+                f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
+                {'quantity': 30, 'low_threshold': 50}, format='json',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(mocked.called, 'The alert was judged against the old threshold')
+
+    def test_post_accepts_a_low_threshold(self):
+        new_medicine = Medicine.objects.create(
+            name='Salbutamol Inhaler', category='Bronchodilator',
+            dosage_form='Inhaler', strength='100mcg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 200,
+            'price': '8.00', 'low_threshold': 60,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['low_threshold'], 60)
+
+    def test_post_without_a_low_threshold_keeps_the_model_default(self):
+        new_medicine = Medicine.objects.create(
+            name='Azithromycin 500mg', category='Antibiotic',
+            dosage_form='Tablet', strength='500mg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 200, 'price': '8.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['low_threshold'], 10)
+
+    def test_patch_rejects_a_negative_low_threshold(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
+            {'low_threshold': -1}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.low_threshold, 10)
+
+    def test_patch_rejects_a_non_integer_low_threshold(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
+            {'low_threshold': 'abc'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_bad_threshold_does_not_apply_the_quantity_in_the_same_patch(self):
+        """Same contract as the price validation round: one rejected field
+        rejects the whole request, rather than half-applying it."""
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
+            {'quantity': 3, 'low_threshold': 'abc'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 100)
+        self.assertEqual(StockTransaction.objects.count(), 0)

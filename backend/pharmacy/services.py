@@ -39,7 +39,7 @@ def sort_by_proximity(queryset, lat, lng, radius_km=None):
 
 
 def apply_stock_change(pharmacy, medicine, *, absolute=None, delta=None,
-                       source, transaction_type, user=None):
+                       source, transaction_type, user=None, alert=True):
     """The single write path for stock quantity, used by both the owner API
     and the POS sync endpoint.
 
@@ -58,6 +58,13 @@ def apply_stock_change(pharmacy, medicine, *, absolute=None, delta=None,
     alert fire -- sync/signals.py hooks post_save on StockTransaction, not on
     the stock row -- so any caller that skips this function silently loses
     alerting.
+
+    `alert=False` writes the ledger row without the alert, for the two owner
+    paths where a low quantity is not news: the zeroing write that precedes a
+    row's deletion (the medicine is about to stop existing, so "critical, 0
+    left" would be a lie), and a row's own creation (the owner just typed that
+    number in and is looking at it). Both still land in the ledger -- only the
+    broadcast is suppressed. Everything else, POS included, alerts.
 
     Returns (stock, transaction, clamped).
     """
@@ -85,7 +92,9 @@ def apply_stock_change(pharmacy, medicine, *, absolute=None, delta=None,
         stock.quantity = max(0, target)
         stock.save(update_fields=['quantity'])
 
-        txn = StockTransaction.objects.create(
+        # Built then saved, rather than objects.create(), so the suppression
+        # flag is already on the instance the post_save receiver is handed.
+        txn = StockTransaction(
             pharmacy=pharmacy,
             medicine=medicine,
             quantity_delta=requested_delta,
@@ -94,5 +103,7 @@ def apply_stock_change(pharmacy, medicine, *, absolute=None, delta=None,
             changed_by=user,
             client_timestamp=timezone.now(),
         )
+        txn.skip_low_stock_alert = not alert
+        txn.save()
 
     return stock, txn, clamped

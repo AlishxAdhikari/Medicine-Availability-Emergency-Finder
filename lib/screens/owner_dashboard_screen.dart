@@ -60,6 +60,22 @@ String? validateQuantity(String? raw) {
 bool isOwnershipRevoked(Object error) =>
     error is ApiException && error.statusCode == 403;
 
+/// Validates the low-stock threshold field. Returns null when valid, else the
+/// message to show under the field.
+///
+/// Blank is allowed and means "leave it as it is" -- on the add dialog the
+/// server applies its own default of 10, and on the edit dialog the field is
+/// pre-filled, so an owner who clears it is not asking for zero. Zero itself is
+/// valid and means "only alert me when it runs out".
+String? validateLowThreshold(String? raw) {
+  final text = (raw ?? '').trim();
+  if (text.isEmpty) return null;
+  final value = int.tryParse(text);
+  if (value == null) return 'Enter a whole number, e.g. 10.';
+  if (value < 0) return 'The alert level cannot be negative.';
+  return null;
+}
+
 /// Validates the price field. Returns null when valid, else the message.
 String? validatePrice(String? raw) {
   final text = (raw ?? '').trim();
@@ -166,6 +182,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     final quantityController =
         TextEditingController(text: row.quantity.toString());
     final priceController = TextEditingController(text: row.price);
+    final thresholdController =
+        TextEditingController(text: row.lowThreshold.toString());
 
     // Everything that reads these controllers lives inside the try, and the
     // finally runs only after `await showDialog` has completed -- disposing
@@ -198,6 +216,15 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                     validator: validatePrice,
                     decoration: const InputDecoration(labelText: 'Price'),
                   ),
+                  TextFormField(
+                    controller: thresholdController,
+                    keyboardType: TextInputType.number,
+                    validator: validateLowThreshold,
+                    decoration: const InputDecoration(
+                      labelText: 'Alert me at or below',
+                      helperText: 'Low-stock alerts fire at this count.',
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -225,6 +252,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
 
       final quantity = int.tryParse(quantityController.text.trim());
       final price = priceController.text.trim();
+      // Null when left blank, which means "unchanged" -- see
+      // validateLowThreshold. tryParse is safe here for the same reason it is
+      // for quantity: the validator has already refused anything unparseable.
+      final threshold = int.tryParse(thresholdController.text.trim());
       if (quantity == null) {
         // Unreachable while the validator above is in place; kept so a future
         // edit to the dialog cannot reintroduce a silent no-op.
@@ -248,6 +279,16 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         // a delta-0 ADJUSTED row to the ledger this feature exists to keep
         // honest. Committing per call keeps the displayed row exactly as
         // server-authoritative as the calls that actually returned.
+        // Threshold before quantity, matching the order owner_views.py applies
+        // them in: the alert that a quantity drop may raise is judged against
+        // whatever threshold the row holds at that moment, so sending the new
+        // threshold second would have the server test the old one.
+        if (threshold != null && threshold != row.lowThreshold) {
+          final updated = await OwnerStockService.instance
+              .setLowThreshold(row.id, threshold);
+          if (!mounted) return;
+          setState(() => _replaceRow(updated));
+        }
         if (quantity != row.quantity) {
           final updated =
               await OwnerStockService.instance.setQuantity(row.id, quantity);
@@ -280,6 +321,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     } finally {
       quantityController.dispose();
       priceController.dispose();
+      thresholdController.dispose();
     }
   }
 
@@ -342,6 +384,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     final searchController = TextEditingController();
     final quantityController = TextEditingController(text: '0');
     final priceController = TextEditingController(text: '0.00');
+    // Left empty on purpose: blank sends no low_threshold at all and lets the
+    // server's default stand, rather than this screen hard-coding a copy of it.
+    final thresholdController = TextEditingController();
     List<Map<String, dynamic>> results = [];
     int? selectedId;
     String? dialogError;
@@ -411,6 +456,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   medicineId: selectedId!,
                   quantity: quantity,
                   price: priceController.text.trim(),
+                  lowThreshold:
+                      int.tryParse(thresholdController.text.trim()),
                 );
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx, true);
@@ -490,6 +537,15 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                           validator: validatePrice,
                           decoration: const InputDecoration(labelText: 'Price'),
                         ),
+                        TextFormField(
+                          controller: thresholdController,
+                          keyboardType: TextInputType.number,
+                          validator: validateLowThreshold,
+                          decoration: const InputDecoration(
+                            labelText: 'Alert me at or below (optional)',
+                            helperText: 'Leave blank for the default of 10.',
+                          ),
+                        ),
                         if (dialogError != null) ...[
                           const SizedBox(height: 8),
                           Text(
@@ -531,6 +587,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       searchController.dispose();
       quantityController.dispose();
       priceController.dispose();
+      thresholdController.dispose();
     }
   }
 
@@ -588,7 +645,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     }
 
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, '/');
+    // Matches the drawer logout in home_screen.dart: clear the stack rather
+    // than replace one route, so nothing an owner opened on the way here can
+    // be reached with the back button after the tokens are gone.
+    Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
   }
 
   @override
@@ -677,7 +737,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Qty ${row.quantity}  ·  Rs ${row.price}'),
+                Text(
+                  'Qty ${row.quantity}  ·  Rs ${row.price}'
+                  '  ·  alert ≤ ${row.lowThreshold}',
+                ),
                 if (rowError != null)
                   Text(
                     rowError,

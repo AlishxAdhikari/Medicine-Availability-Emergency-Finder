@@ -78,7 +78,13 @@ class _AppShellState extends State<AppShell> {
               }
 
               if (context.mounted) {
-                Navigator.pushReplacementNamed(context, '/');
+                // RemoveUntil, not pushReplacement. An owner reaches this
+                // shell from the dashboard's home button, which pushes ON TOP
+                // of /owner -- so replacing only this route leaves /owner
+                // sitting underneath, and one back press hands a logged-out
+                // person the stock editor. Clearing the stack is also what
+                // makes logging out mean the same thing from every screen.
+                Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
               }
             },
             

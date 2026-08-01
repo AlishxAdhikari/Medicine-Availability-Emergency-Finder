@@ -47,7 +47,10 @@ class OwnerStockSerializer(serializers.ModelSerializer):
     quantity change is not a field assignment -- it has to go through
     apply_stock_change() inside a row lock to produce the audit trail and
     trigger the low-stock alert. Letting a ModelSerializer write `quantity`
-    directly would bypass both.
+    directly would bypass both. price and low_threshold ARE plain field
+    assignments and the owner can set both, but they are parsed and applied in
+    owner_views.py alongside quantity so that one request is one code path,
+    ordered so the alert sees the new threshold.
 
     `medicine` is nested rather than an id so the dashboard can render a name
     without a second request. On create, the view reads the medicine id
