@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
@@ -5,6 +7,7 @@ import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/owner_stock_service.dart';
 import '../services/pharmacy_service.dart';
+import '../services/stock_alert_service.dart';
 import '../state.dart';
 
 /// True when [edited] denotes a different price from [current].
@@ -124,10 +127,78 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   static const _offlineMessage =
       'Could not reach the server. Check your connection and try again.';
 
+  // Live low-stock feed for this owner's own pharmacy. The POS sells stock all
+  // day without touching this app, so without the socket the dashboard is only
+  // ever as current as the last pull-to-refresh -- and the one screen that
+  // most needs to know a medicine just ran out was the only one not listening.
+  final StockAlertService _alertService = StockAlertService();
+  StreamSubscription<StockAlert>? _alertSubscription;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _subscribeToAlerts();
+  }
+
+  @override
+  void dispose() {
+    _alertSubscription?.cancel();
+    _alertService.disconnect();
+    super.dispose();
+  }
+
+  /// Opens the socket for the pharmacy this account owns. Silent on failure:
+  /// live updates are an enhancement over the list that _load() already
+  /// fetched, so a socket that will not open must not produce an error screen
+  /// over working data.
+  Future<void> _subscribeToAlerts() async {
+    final pharmacyId = AppStateManager.instance.ownedPharmacyIdNotifier.value;
+    // Null when an older backend sent no `pharmacy` on the login response, or
+    // when a biometric snapshot predates that field.
+    if (pharmacyId == null) return;
+
+    try {
+      final stream = await _alertService.connect(pharmacyId);
+      if (!mounted) {
+        // Disposed during connect(); nothing would ever close this socket.
+        _alertService.disconnect();
+        return;
+      }
+      _alertSubscription = stream.listen(_onStockAlert);
+    } catch (_) {
+      // No socket, no live updates. The dashboard still works.
+    }
+  }
+
+  void _onStockAlert(StockAlert alert) {
+    if (!mounted) return;
+    setState(() {
+      // The alert carries the server's committed quantity, so trust it over
+      // the row we are holding -- that is the entire point of the socket.
+      final index = _stock.indexWhere((s) => s.medicineId == alert.medicineId);
+      if (index != -1) {
+        final row = _stock[index];
+        _stock[index] = OwnerStock(
+          id: row.id,
+          medicineId: row.medicineId,
+          medicineName: row.medicineName,
+          quantity: alert.quantity,
+          price: row.price,
+          lowThreshold: row.lowThreshold,
+        );
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          alert.level == 'critical'
+              ? '${alert.medicineName} is out of stock.'
+              : '${alert.medicineName} is running low (${alert.quantity} left).',
+        ),
+      ),
+    );
   }
 
   /// Demote to a plain consumer and leave. Called from every path that can
@@ -200,11 +271,19 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         _error = e.message;
         _loading = false;
       });
+    } on StateError {
+      // parseStockPayload refusing a truncated page. Retry cannot fix it, so
+      // saying "check your connection" sends the owner to look at the one
+      // thing that is not wrong -- and the stock list they are being shown is
+      // incomplete, which is the part they need to know.
+      if (!mounted) return;
+      setState(() {
+        _error = 'Your stock list is too long for this version of the app to '
+            'show safely. Some medicines would be missing, so nothing is '
+            'shown. Please update the app.';
+        _loading = false;
+      });
     } catch (_) {
-      // Also catches the StateError parseStockPayload throws if the endpoint
-      // ever starts paginating. Calling that a connection problem is not
-      // strictly accurate, but it is a shape this client cannot serve and the
-      // owner's only useful action is still Retry.
       if (!mounted) return;
       setState(() {
         _error = _offlineMessage;
@@ -782,8 +861,22 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         itemBuilder: (context, index) {
           final row = _stock[index];
           final rowError = _rowErrors[row.id];
+          // Derived from the row rather than remembered from the alert that
+          // announced it: the same condition the server tests (signals.py uses
+          // quantity > low_threshold to mean "fine"), so it stays right after
+          // an edit, a refresh, or a threshold change, with no second copy of
+          // the state to keep in step.
+          final isLow = row.quantity <= row.lowThreshold;
           return ListTile(
             isThreeLine: rowError != null,
+            leading: isLow
+                ? Icon(
+                    row.quantity == 0
+                        ? Icons.error_outline
+                        : Icons.warning_amber_outlined,
+                    color: theme.colorScheme.error,
+                  )
+                : null,
             title: Text(row.medicineName),
             // The error is shown IN ADDITION to the quantity and price, never
             // instead of them. Replacing them hid the only copy of the row's

@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .views import (
+    CurrentUserView,
     LoginIdentifierView,
     MedicalProfileView,
     RegisterView,
@@ -16,6 +17,8 @@ urlpatterns = [
     # no need to reimplement token issuance ourselves.
     path('login/', TokenObtainPairView.as_view(), name='auth-login'),
     path('refresh/', TokenRefreshView.as_view(), name='auth-refresh'),
+    # Re-reads role/pharmacy for a session resumed without a fresh login.
+    path('me/', CurrentUserView.as_view(), name='auth-me'),
 
     # A3: Medical ID
     path('medical-id/', MedicalProfileView.as_view(), name='medical-id'),

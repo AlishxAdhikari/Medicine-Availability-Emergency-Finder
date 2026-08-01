@@ -13,6 +13,22 @@ String routeForRole(Map<String, dynamic> user) {
   return user['role'] == 'pharmacy_owner' ? '/owner' : '/home';
 }
 
+/// Records the owner role from a `user` object -- either the one on the login
+/// response or the one GET /auth/me/ returns, which are the same shape
+/// (UserSerializer). Shared so the password and biometric paths cannot drift.
+///
+/// `as num?` on the id rather than `as int?`: JSON that round-tripped through
+/// storage can hand back a whole number as a double, and a hard cast would
+/// throw where the rest of this degrades to a default.
+void applyRoleFromUser(Map<String, dynamic> user) {
+  final pharmacy = user['pharmacy'] as Map<String, dynamic>?;
+  AppStateManager.instance.setOwnerRole(
+    isOwner: user['role'] == 'pharmacy_owner',
+    pharmacyId: (pharmacy?['id'] as num?)?.toInt(),
+    pharmacyName: pharmacy?['name'] as String? ?? '',
+  );
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -35,11 +51,27 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (success) {
+        // Clear first. A device with no snapshot -- or one whose snapshot is
+        // unreadable -- must not inherit whatever role the previous account on
+        // this device left in memory.
+        AppStateManager.instance.clearOwnerRole();
+
         final snapshot = await BiometricService.instance.getUserSnapshot();
         if (snapshot != null) {
           AppStateManager.instance.updateProfile(profileFromSnapshot(snapshot));
           applyOwnerRoleFromSnapshot(snapshot);
         }
+
+        // The snapshot only knows what was true at the last password login.
+        // Losing ownership since then self-corrects (the owner API answers 403
+        // and the dashboard demotes), but GAINING it does not: staff link the
+        // pharmacy in admin, and a fingerprint user would keep landing on the
+        // consumer home with no way to the dashboard until they happened to
+        // type a password again. Ask the server, and keep the snapshot's
+        // answer only if it can't be reached.
+        try {
+          applyRoleFromUser(await AuthService.instance.currentUser());
+        } catch (_) {}
 
         try {
           await MedicalProfileService.instance.fetch();
@@ -103,12 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
         await MedicalProfileService.instance.fetch();
       } catch (_) {}
 
-      final pharmacy = user['pharmacy'] as Map<String, dynamic>?;
-      AppStateManager.instance.setOwnerRole(
-        isOwner: user['role'] == 'pharmacy_owner',
-        pharmacyId: pharmacy?['id'] as int?,
-        pharmacyName: pharmacy?['name'] as String? ?? '',
-      );
+      applyRoleFromUser(user);
 
       // Re-snapshot after the role is set, so the biometric path restores it
       // too -- otherwise a fingerprint login drops an owner on the user home.

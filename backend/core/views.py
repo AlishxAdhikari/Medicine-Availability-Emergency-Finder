@@ -70,6 +70,28 @@ class LoginIdentifierView(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
+class CurrentUserView(generics.RetrieveAPIView):
+    """GET /api/v1/auth/me/ — the signed-in user, same shape as the `user` key
+    on the login response.
+
+    Exists because `role` is derived from the PharmacyOwner link (see
+    UserSerializer) and can therefore change between logins: staff link or
+    unlink a pharmacy in admin whenever they like. Any client that resumes a
+    session without going through login-identifier -- the biometric path in
+    login_screen.dart -- would otherwise be routing off whatever role was true
+    the last time a password was typed. Losing ownership self-corrects (the
+    owner API 403s), but GAINING it does not: nothing would ever tell the app.
+
+    Like MedicalProfileView there is no id in the URL; it always resolves to
+    whoever's token this is.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = UserSerializer
+
+    def get_object(self):
+        return self.request.user
+
+
 class MedicalProfileView(generics.RetrieveUpdateAPIView):
     """GET/PUT /api/v1/auth/medical-id/ — the logged-in user's own profile.
 

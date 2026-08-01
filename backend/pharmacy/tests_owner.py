@@ -660,6 +660,49 @@ class OwnerStockApiTests(TestCase):
         self.assertEqual(self.stock.quantity, 100)
         self.assertEqual(StockTransaction.objects.count(), 0)
 
+    # -- Fix round 4: input the parser used to accept -------------------
+
+    def test_post_rejects_a_boolean_medicine_id(self):
+        """int(True) is 1, so `true` used to resolve to whichever medicine
+        holds pk 1 -- a different medicine than the caller named, silently."""
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': True, 'quantity': 5, 'price': '8.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_rejects_a_boolean_quantity(self):
+        self._auth(self.owner)
+
+        response = self.client.patch(
+            f'/api/v1/my-pharmacy/stock/{self.stock.id}/',
+            {'quantity': True}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 100)
+
+    def test_post_requires_a_price(self):
+        """Omitting it used to publish the medicine to every public search at
+        0.00. A stated price of nothing is worse than no listing."""
+        new_medicine = Medicine.objects.create(
+            name='Diclofenac 50mg', category='Analgesic',
+            dosage_form='Tablet', strength='50mg',
+        )
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': new_medicine.id, 'quantity': 5,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            PharmacyMedicineStock.objects.filter(medicine=new_medicine).exists()
+        )
+
     # -- Fix round 3: the duplicate-add race -----------------------------
 
     def test_rejected_duplicate_leaves_the_existing_row_untouched(self):
