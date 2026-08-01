@@ -1,6 +1,6 @@
 from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.response import Response
@@ -9,6 +9,14 @@ from .models import Medicine, PharmacyMedicineStock
 from .permissions import IsPharmacyOwner
 from .serializers import OwnerStockSerializer
 from .services import apply_stock_change
+
+
+ALREADY_STOCKED = 'This pharmacy already stocks that medicine. Edit it instead.'
+
+
+class _AlreadyStocked(Exception):
+    """Raised from inside create()'s transaction, so returning the 400 also
+    rolls back the row the attempt had already created."""
 
 
 def _parse_non_negative_int(raw, field, label):
@@ -90,14 +98,6 @@ class OwnerStockViewSet(viewsets.ViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
         medicine = get_object_or_404(Medicine, pk=medicine_id)
 
-        if PharmacyMedicineStock.objects.filter(
-            pharmacy=self.pharmacy, medicine=medicine
-        ).exists():
-            return Response(
-                {'medicine': ['This pharmacy already stocks that medicine. Edit it instead.']},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         quantity, error = _parse_quantity(request.data.get('quantity'))
         if error is not None:
             return error
@@ -114,27 +114,57 @@ class OwnerStockViewSet(viewsets.ViewSet):
             if error is not None:
                 return error
 
-        with transaction.atomic():
-            # alert=False: the opening quantity is not news. low_threshold
-            # defaults to 10, so without this every medicine added with a
-            # single-digit opening count -- an ordinary thing to do -- pushed a
-            # "low stock" alert to every client watching this pharmacy, about a
-            # number the owner had just finished typing.
-            stock, _, _ = apply_stock_change(
-                self.pharmacy, medicine, absolute=quantity,
-                source='MANUAL', transaction_type='ADJUSTED', user=request.user,
-                alert=False,
-            )
+        try:
+            with transaction.atomic():
+                # "Do we already stock this?" is answered by claiming the row,
+                # not by asking first. A separate .exists() check before the
+                # transaction reads a state that another request can invalidate
+                # before this one writes -- and the failure is silent rather
+                # than loud, because get_or_create() swallows the unique
+                # violation and re-fetches the winner's row (see Django's
+                # _create_object_from_params). The second POST would then take
+                # the first one's row, overwrite its quantity with `absolute`,
+                # and answer 201 Created, so both owners believe they added it
+                # and one of them is looking at the other's count.
+                #
+                # get_or_create's `created` flag is the same statement that
+                # would have clobbered, so there is no window between deciding
+                # and acting. On SQLite the IMMEDIATE transaction mode
+                # serialises the block outright; on PostgreSQL the loser blocks
+                # on the unique index and comes back created=False.
+                _, created = PharmacyMedicineStock.objects.get_or_create(
+                    pharmacy=self.pharmacy, medicine=medicine,
+                    defaults={'price': 0},
+                )
+                if not created:
+                    raise _AlreadyStocked
 
-            update_fields = []
-            if price is not None:
-                stock.price = price
-                update_fields.append('price')
-            if low_threshold is not None:
-                stock.low_threshold = low_threshold
-                update_fields.append('low_threshold')
-            if update_fields:
-                stock.save(update_fields=update_fields)
+                # alert=False: the opening quantity is not news. low_threshold
+                # defaults to 10, so without this every medicine added with a
+                # single-digit opening count -- an ordinary thing to do --
+                # pushed a "low stock" alert to every client watching this
+                # pharmacy, about a number the owner had just finished typing.
+                stock, _, _ = apply_stock_change(
+                    self.pharmacy, medicine, absolute=quantity,
+                    source='MANUAL', transaction_type='ADJUSTED', user=request.user,
+                    alert=False,
+                )
+
+                update_fields = []
+                if price is not None:
+                    stock.price = price
+                    update_fields.append('price')
+                if low_threshold is not None:
+                    stock.low_threshold = low_threshold
+                    update_fields.append('low_threshold')
+                if update_fields:
+                    stock.save(update_fields=update_fields)
+        except (_AlreadyStocked, IntegrityError):
+            # IntegrityError as well, for the database that raises the unique
+            # violation rather than resolving it: same answer either way, and
+            # the same answer the sequential case gives.
+            return Response({'medicine': [ALREADY_STOCKED]},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         return Response(OwnerStockSerializer(stock).data, status=status.HTTP_201_CREATED)
 

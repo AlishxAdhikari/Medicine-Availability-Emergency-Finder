@@ -60,6 +60,21 @@ String? validateQuantity(String? raw) {
 bool isOwnershipRevoked(Object error) =>
     error is ApiException && error.statusCode == 403;
 
+/// True when [error] says this session is over.
+///
+/// ApiClient only lets a 401 reach a caller after it has already tried the
+/// refresh token once and failed, at which point it deletes both tokens
+/// (api_client.dart's _handleResponse). So by the time this returns true there
+/// is no credential left on the device and no request will ever succeed again
+/// -- which is why it cannot be treated as an ordinary row error like the
+/// others here. Left as one, the owner sat on a dashboard of stale stock
+/// tapping a Retry button that could not work, with no logged-out state to tell
+/// them why. Separate from [isOwnershipRevoked] because the destination
+/// differs: a revoked owner is still signed in and goes to /home, an expired
+/// session goes back to the login screen.
+bool isSessionExpired(Object error) =>
+    error is ApiException && error.statusCode == 401;
+
 /// Validates the low-stock threshold field. Returns null when valid, else the
 /// message to show under the field.
 ///
@@ -125,6 +140,21 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     Navigator.pushReplacementNamed(context, '/home');
   }
 
+  /// Drop back to the login screen because the session is gone -- see
+  /// [isSessionExpired]. Same caller contract as [_leaveAsRevokedOwner]:
+  /// `mounted` checked immediately before, any dialog dismissed first.
+  ///
+  /// The role and the logged-in flag are both cleared, because ApiClient has
+  /// already discarded the tokens: leaving isLoggedIn true would leave the app
+  /// claiming a session that no longer exists anywhere. The stack goes with it,
+  /// for the same reason logout clears it -- nothing behind this screen is
+  /// usable without a token.
+  void _leaveAsSignedOut() {
+    AppStateManager.instance.clearOwnerRole();
+    AppStateManager.instance.setLoggedIn(false);
+    Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+  }
+
   /// Swaps a server response into the list in place. Must be called inside a
   /// setState. No-ops if the row has since left the list.
   void _replaceRow(OwnerStock updated) {
@@ -154,6 +184,12 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       });
     } on ApiException catch (e) {
       if (!mounted) return;
+      // 401 means the refresh already failed and the tokens are gone; there is
+      // nothing to retry with, so send them to login instead of an error card.
+      if (isSessionExpired(e)) {
+        _leaveAsSignedOut();
+        return;
+      }
       // 403 means the owner link was removed while this session was open.
       // Drop back to the normal app rather than looping on an error.
       if (isOwnershipRevoked(e)) {
@@ -303,9 +339,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         }
       } on ApiException catch (e) {
         if (!mounted) return;
+        // Both of these leave the screen; the dialog is already closed by this
+        // point -- this catch sits after the `await showDialog` -- so
+        // State.context is on top.
+        if (isSessionExpired(e)) {
+          _leaveAsSignedOut();
+          return;
+        }
         if (isOwnershipRevoked(e)) {
-          // The dialog is already closed by this point -- this catch sits
-          // after the `await showDialog` -- so State.context is on top.
           _leaveAsRevokedOwner();
           return;
         }
@@ -358,6 +399,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       });
     } on ApiException catch (e) {
       if (!mounted) return;
+      if (isSessionExpired(e)) {
+        _leaveAsSignedOut();
+        return;
+      }
       if (isOwnershipRevoked(e)) {
         _leaveAsRevokedOwner();
         return;
@@ -398,6 +443,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     // still on top, and State.mounted (not ctx.mounted) is the right guard
     // for the State.context that pushReplacementNamed needs.
     bool ownershipRevoked = false;
+    // Same deferral, for the same reason: an expired session has to leave from
+    // out here, after the dialog is gone.
+    bool sessionExpired = false;
 
     try {
       final added = await showDialog<bool>(
@@ -463,8 +511,13 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                 Navigator.pop(ctx, true);
               } catch (e) {
                 if (!ctx.mounted) return;
-                if (isOwnershipRevoked(e)) {
+                if (isSessionExpired(e)) {
                   // Close the dialog and let the caller navigate.
+                  sessionExpired = true;
+                  Navigator.pop(ctx, false);
+                  return;
+                }
+                if (isOwnershipRevoked(e)) {
                   ownershipRevoked = true;
                   Navigator.pop(ctx, false);
                   return;
@@ -578,6 +631,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       );
 
       if (!mounted) return;
+      if (sessionExpired) {
+        _leaveAsSignedOut();
+        return;
+      }
       if (ownershipRevoked) {
         _leaveAsRevokedOwner();
         return;
