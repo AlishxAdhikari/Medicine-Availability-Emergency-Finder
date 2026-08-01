@@ -24,8 +24,12 @@ class OwnerStock {
       medicineId: medicine['id'] as int,
       medicineName: medicine['name'] as String,
       quantity: json['quantity'] as int,
-      // DRF renders DecimalField as a string; a row the POS created defaults
-      // to 0.0, so don't assume the key is always present.
+      // DRF renders DecimalField as a string. The server cannot actually omit
+      // this key or send null -- PharmacyMedicineStock.price is a non-nullable
+      // DecimalField with no model default, and apply_stock_change() creates
+      // rows with defaults={'price': 0.0}, which serialises as "0.00", not as
+      // an absent key. The fallback is pure defensiveness against a future
+      // serializer change; it is unreachable against today's backend.
       price: json['price']?.toString() ?? '0',
     );
   }
@@ -42,14 +46,28 @@ class OwnerStock {
 /// `{count, next, previous, results}` and a plain `data as List` would throw a
 /// cast error in the user's face. Reading both shapes is drift insurance.
 ///
-/// This is NOT pagination support: a genuinely paginated response with a
-/// non-null `next` would still be truncated to its first page here. Following
-/// `next` is a real design decision (page in the dashboard, or cap the
-/// endpoint), not something to invent as a side effect -- and silently
-/// truncating a list is exactly the repo's most recent bug, commit b30fd41,
-/// "Fix emergency districts disappearing behind API pagination". If that
-/// refactor happens, fix paging deliberately rather than leaning on this.
+/// This is NOT pagination support, and it deliberately does not become it by
+/// accident: a wrapper whose `next` is non-null means the server is holding
+/// rows this client did not read, so it throws instead of returning page one.
+/// Returning those rows would reintroduce exactly the silent data loss that
+/// commit b30fd41 ("Fix emergency districts disappearing behind API
+/// pagination") fixed -- partial results that look complete. Concretely, an
+/// owner whose 25th medicine is invisible on the dashboard would try to re-add
+/// it and get a contradictory 400 "This pharmacy already stocks that medicine."
+/// Same reasoning as EmergencyService._fetchAllPages, which refuses to return a
+/// truncated list for the same reason.
+///
+/// Following `next` is a real design decision (page in the dashboard, or cap
+/// the endpoint), not something to invent as a side effect. If that refactor
+/// happens, fix paging deliberately rather than leaning on this.
 List<OwnerStock> parseStockPayload(dynamic data) {
+  if (data is Map && data['next'] != null) {
+    throw StateError(
+      '/my-pharmacy/stock/ returned a paginated response and the server still '
+      'reports more results (next: ${data['next']}); this client does not '
+      'follow pages, so it is refusing to return a truncated list.',
+    );
+  }
   final rows = switch (data) {
     List() => data,
     {'results': final List results} => results,
