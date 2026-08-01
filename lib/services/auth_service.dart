@@ -50,6 +50,17 @@ class AuthService {
     return loginData;
   }
   
+  /// GET /api/v1/auth/me/ -- the signed-in user in the same shape as the
+  /// `user` key on the login response, `role` and `pharmacy` included.
+  ///
+  /// For sessions resumed without a fresh login: role is derived from the
+  /// PharmacyOwner link, so staff can grant or revoke it between logins and
+  /// only the server knows.
+  Future<Map<String, dynamic>> currentUser() async {
+    final data = await _client.get('/auth/me/', auth: true);
+    return Map<String, dynamic>.from(data as Map);
+  }
+
   Future<void> logout({bool keepBiometricSession = false}) async {
     if (keepBiometricSession) {
       await _client.clearAccessTokenOnly();

@@ -21,6 +21,11 @@ class _AlreadyStocked(Exception):
 
 def _parse_non_negative_int(raw, field, label):
     """Returns (value, error_response). error_response is None on success."""
+    if isinstance(raw, bool):
+        # int(True) is 1, so a JSON `true` would otherwise sail through as a
+        # quantity of one. bool is a subclass of int, hence the explicit check.
+        return None, Response({field: ['A whole number is required.']},
+                               status=status.HTTP_400_BAD_REQUEST)
     try:
         value = int(raw)
     except (TypeError, ValueError):
@@ -91,8 +96,13 @@ class OwnerStockViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
     def create(self, request):
+        raw_medicine = request.data.get('medicine')
+        if isinstance(raw_medicine, bool):
+            # int(True) == 1: a JSON `true` here used to resolve to whichever
+            # medicine happens to hold pk 1.
+            raw_medicine = None
         try:
-            medicine_id = int(request.data.get('medicine'))
+            medicine_id = int(raw_medicine)
         except (TypeError, ValueError):
             return Response({'medicine': ['A valid medicine id is required.']},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -102,11 +112,15 @@ class OwnerStockViewSet(viewsets.ViewSet):
         if error is not None:
             return error
 
-        price = None
-        if 'price' in request.data:
-            price, error = _parse_price(request.data.get('price'))
-            if error is not None:
-                return error
+        # Required on create, unlike on PATCH. Defaulting it meant a caller
+        # that omitted price published the medicine to every public search at
+        # 0.00 -- and a stated price of nothing is worse than no listing.
+        if 'price' not in request.data:
+            return Response({'price': ['This field is required.']},
+                            status=status.HTTP_400_BAD_REQUEST)
+        price, error = _parse_price(request.data.get('price'))
+        if error is not None:
+            return error
 
         low_threshold = None
         if 'low_threshold' in request.data:

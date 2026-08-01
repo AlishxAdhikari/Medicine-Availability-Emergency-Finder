@@ -168,6 +168,34 @@ class _AppShellState extends State<AppShell> {
                 Navigator.pop(context);
               },
             ),
+            // Owners only. The dashboard's own app bar can send them here, and
+            // without this the only route back was the hardware back button --
+            // which does not exist on a fingerprint login that landed on
+            // /owner and walked forward, and does not exist at all on iOS.
+            ValueListenableBuilder<bool>(
+              valueListenable: state.isPharmacyOwnerNotifier,
+              builder: (context, isOwner, _) {
+                if (!isOwner) return const SizedBox.shrink();
+                return ListTile(
+                  leading: const Icon(Icons.store),
+                  title: const Text('My Pharmacy'),
+                  subtitle: ValueListenableBuilder<String>(
+                    valueListenable: state.ownedPharmacyNameNotifier,
+                    builder: (context, name, _) =>
+                        name.isEmpty ? const SizedBox.shrink() : Text(name),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context); // close the drawer
+                    // RemoveUntil so walking /owner -> /home -> /owner doesn't
+                    // stack a second dashboard behind this one. Leaves the
+                    // owner exactly where login puts them.
+                    Navigator.pushNamedAndRemoveUntil(
+                      context, '/owner', (route) => false,
+                    );
+                  },
+                );
+              },
+            ),
             const Divider(),
             ListTile(
               leading: Icon(
