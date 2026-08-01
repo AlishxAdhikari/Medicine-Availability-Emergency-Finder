@@ -7,6 +7,28 @@ import 'package:medalert/services/api_client.dart';
 // uninjectable singleton, which is the same reason pharmacy_service_test.dart
 // is gated behind RUN_BACKEND_TESTS.
 void main() {
+  group('isSessionExpired', () {
+    test('is true only for a 401 ApiException', () {
+      // ApiClient surfaces a 401 to callers only after its own refresh attempt
+      // failed and it deleted both tokens, so this means "no credential left",
+      // not "try again".
+      expect(isSessionExpired(ApiException(401, 'Unauthorized')), isTrue);
+      expect(isSessionExpired(ApiException(403, 'Forbidden')), isFalse);
+      expect(isSessionExpired(ApiException(404, 'Not found')), isFalse);
+      expect(isSessionExpired(ApiException(500, 'Server error')), isFalse);
+      expect(isSessionExpired(Exception('offline')), isFalse);
+    });
+
+    test('does not overlap with isOwnershipRevoked', () {
+      // The two lead to different destinations -- login vs /home -- so a
+      // single error must never satisfy both.
+      for (final status in [401, 403]) {
+        final error = ApiException(status, 'x');
+        expect(isSessionExpired(error) && isOwnershipRevoked(error), isFalse);
+      }
+    });
+  });
+
   group('validateLowThreshold', () {
     test('accepts a whole number, including zero', () {
       expect(validateLowThreshold('25'), isNull);

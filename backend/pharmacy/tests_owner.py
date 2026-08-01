@@ -1,6 +1,8 @@
+import threading
+
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
-from django.test import TestCase
+from django.db import IntegrityError, connection
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -657,3 +659,92 @@ class OwnerStockApiTests(TestCase):
         self.stock.refresh_from_db()
         self.assertEqual(self.stock.quantity, 100)
         self.assertEqual(StockTransaction.objects.count(), 0)
+
+    # -- Fix round 3: the duplicate-add race -----------------------------
+
+    def test_rejected_duplicate_leaves_the_existing_row_untouched(self):
+        """The rejection must not be the only thing that happened -- the row
+        the owner already had has to come out the other side unchanged, with no
+        adjustment logged against it."""
+        self._auth(self.owner)
+
+        response = self.client.post('/api/v1/my-pharmacy/stock/', {
+            'medicine': self.medicine.id, 'quantity': 5, 'price': '999.00',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.quantity, 100)
+        self.assertEqual(str(self.stock.price), '10.00')
+        self.assertEqual(StockTransaction.objects.count(), 0)
+        self.assertEqual(PharmacyMedicineStock.objects.count(), 1)
+
+
+class ConcurrentAddTests(TransactionTestCase):
+    """TransactionTestCase, not TestCase: these threads need real commits and
+    their own connections, which the usual per-test transaction wrapper does
+    not give them."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner7', password='pw123456!')
+        self.pharmacy = make_pharmacy('Race Pharmacy')
+        PharmacyOwner.objects.create(user=self.owner, pharmacy=self.pharmacy)
+        self.medicine = Medicine.objects.create(
+            name='Paracetamol 500mg', category='Analgesic',
+            dosage_form='Tablet', strength='500mg',
+        )
+
+    def test_two_simultaneous_adds_of_the_same_medicine_produce_one_row(self):
+        """The race the .exists() pre-check could not win.
+
+        Both requests used to pass the check before either wrote, and
+        get_or_create() then quietly handed the second one the first's row --
+        so the loser overwrote the winner's quantity and still got a 201. Two
+        owners of the same pharmacy adding the same medicine at once is exactly
+        when that happens, and neither of them would have seen anything wrong.
+
+        Exactly one 201, exactly one 400, exactly one row, and the surviving
+        quantity has to belong to whichever request actually created it.
+        """
+        results = []
+        barrier = threading.Barrier(2)
+
+        def add(quantity):
+            def run():
+                try:
+                    client = APIClient()
+                    client.force_authenticate(user=self.owner)
+                    barrier.wait()  # line both threads up on the same instant
+                    response = client.post('/api/v1/my-pharmacy/stock/', {
+                        'medicine': self.medicine.id,
+                        'quantity': quantity,
+                        'price': '10.00',
+                    }, format='json')
+                    results.append((quantity, response.status_code))
+                finally:
+                    connection.close()
+            return run
+
+        threads = [threading.Thread(target=add(q)) for q in (30, 70)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        statuses = sorted(code for _, code in results)
+        self.assertEqual(statuses, [201, 400], results)
+        self.assertEqual(
+            PharmacyMedicineStock.objects.filter(pharmacy=self.pharmacy).count(), 1,
+        )
+
+        winner = next(q for q, code in results if code == 201)
+        stock = PharmacyMedicineStock.objects.get(
+            pharmacy=self.pharmacy, medicine=self.medicine,
+        )
+        self.assertEqual(
+            stock.quantity, winner,
+            'The rejected request still wrote its quantity over the winner\'s.',
+        )
+        # One create, one rejection: the rejected attempt must leave no ledger
+        # entry behind either.
+        self.assertEqual(StockTransaction.objects.count(), 1)
