@@ -729,6 +729,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                   : '${bank.location} • ${bank.distance}',
               latitude: bank.latitude!,
               longitude: bank.longitude!,
+              // Matches the icon on the Blood Banks section header, so the
+              // map and the list are obviously showing the same thing.
+              icon: Icons.bloodtype,
               isPrimary: identical(bank, plotted.first),
               onTap: () => _openDirections(
                 lat: bank.latitude,

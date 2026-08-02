@@ -1,13 +1,14 @@
 # MedAlert Backend
 
-The Django REST Framework API that powers the MedAlert Nepal Flutter app: authentication, digital medical IDs, pharmacy/medicine data, and emergency services (blood banks, ambulances).
+The Django REST Framework API that powers the MedAlert Nepal Flutter app: authentication, digital medical IDs, pharmacy/medicine data, emergency services (blood banks, ambulances), and real-time pharmacy stock synchronization over WebSocket.
 
 > Part of the **MedAlert Nepal** minor project. See the [project root README](../README.md) for the overall system overview, architecture, and frontend setup.
 
 ## Stack
 
 - **Framework:** Django 6 + Django REST Framework
-- **Auth:** `djangorestframework-simplejwt` (JWT access/refresh tokens)
+- **Real-time:** Django Channels 4 + Daphne (ASGI) for WebSocket stock alerts
+- **Auth:** `djangorestframework-simplejwt` (JWT access/refresh tokens); a custom `X-POS-API-Key` scheme for POS terminals, and JWT-over-query-string for WebSocket handshakes
 - **Filtering:** `django-filter`
 - **API docs:** `drf-spectacular` (OpenAPI 3 schema + Swagger UI)
 - **CORS:** `django-cors-headers`
@@ -21,10 +22,10 @@ backend/
 ├── manage.py
 ├── requirements.txt
 ├── medalert_api/                # Django project package
-│   ├── settings.py              # Installed apps, JWT config, CORS, DRF & spectacular settings
+│   ├── settings.py              # Installed apps, JWT config, CORS, DRF, spectacular & channel layer
 │   ├── urls.py                  # Root URLconf — mounts each app under /api/v1/
 │   ├── wsgi.py
-│   └── asgi.py
+│   └── asgi.py                  # ProtocolTypeRouter: HTTP → Django, WebSocket → sync consumers
 │
 ├── core/                        # Auth, users, digital medical ID
 │   ├── models.py                # MedicalProfile (1:1 with User)
@@ -34,11 +35,13 @@ backend/
 │   └── admin.py
 │
 ├── pharmacy/                    # Pharmacies, medicines, stock
-│   ├── models.py                # Pharmacy, Medicine, PharmacyMedicineStock
+│   ├── models.py                # Pharmacy, Medicine, PharmacyMedicineStock, PharmacyOwner
 │   ├── serializers.py
 │   ├── views.py                 # MedicineViewSet, PharmacyViewSet (+ /stock/ action)
+│   ├── owner_views.py           # OwnerStockViewSet — the owner-only stock write API
+│   ├── permissions.py           # IsPharmacyOwner
 │   ├── filters.py               # Search & filter definitions
-│   ├── services.py              # Haversine distance & proximity sorting
+│   ├── services.py              # Haversine distance, proximity sorting, apply_stock_change()
 │   ├── management/commands/
 │   │   └── seed_pharmacies.py   # Faker-based sample data generator
 │   ├── urls.py
@@ -53,10 +56,19 @@ backend/
 │   └── admin.py
 │
 └── sync/                        # Real-time pharmacy stock sync & WebSocket push
-    ├── models.py                # StockTransaction audit log
-    ├── views.py                 # POS stock ingestion endpoint
-    ├── consumers.py             # StockAlertConsumer (Channels WebSocket)
-    └── routing.py               # WebSocket URL routing
+    ├── models.py                # POSIntegrationKey, StockTransaction (append-only audit log)
+    ├── serializers.py           # StockSyncSerializer + medicine lookup
+    ├── authentication.py        # POSKeyAuthentication (X-POS-API-Key header)
+    ├── views.py                 # StockSyncView — POS stock ingestion endpoint
+    ├── signals.py               # post_save → on_commit → low-stock broadcast
+    ├── apps.py                  # ready() imports signals so the receiver registers
+    ├── consumers.py             # StockConsumer (Channels WebSocket)
+    ├── middleware.py            # JWTAuthMiddleware for WebSocket handshakes
+    ├── routing.py               # WebSocket URL routing
+    ├── urls.py
+    ├── management/commands/
+    │   └── simulate_pos.py      # Fake POS terminal for exercising the pipeline
+    └── tests/                   # Consumer, signal & ingestion test suites
 ```
 
 ## Setup
@@ -102,7 +114,7 @@ While `DEBUG=True`, CORS is wide open (`CORS_ALLOW_ALL_ORIGINS = True`) to simpl
 | `core` | User authentication (register, login by username/email/phone, JWT refresh) and the digital Medical ID (`MedicalProfile`) |
 | `pharmacy` | Pharmacy directory, medicine catalog, per-pharmacy stock levels, search & proximity sorting |
 | `emergency` | Blood bank directory with per-blood-group stock levels, ambulance provider directory |
-| `sync` | Scaffolded but not yet implemented — intended for real-time pharmacy stock synchronization |
+| `sync` | Real-time pharmacy stock synchronization: POS ingestion endpoint, append-only `StockTransaction` audit log, and WebSocket push of low-stock alerts. **Implemented and covered by tests** — see [Real-Time Stock Sync](#real-time-stock-sync) |
 
 ## API Reference
 
@@ -127,12 +139,32 @@ Base path: `/api/v1/`. Interactive docs: `/api/v1/docs/` (Swagger UI), raw schem
 | `GET` | `/pharmacies/` | List pharmacies. Query params: `search`, `district`, `is_24_hour`, `is_verified`, `lat`, `lng`, `radius_km` (proximity sort/filter when `lat`/`lng` given) |
 | `GET` | `/pharmacies/<id>/stock/` | Full medicine stock list for one pharmacy |
 
+### Owner Stock Management (`pharmacy`)
+
+Writes go through `apply_stock_change()` rather than plain field assignment, so every change produces a `StockTransaction` row and triggers the low-stock alert. *(Auth required; caller must have a `PharmacyOwner` link, created by staff in Django admin.)*
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/my-pharmacy/stock/` | The signed-in owner's own stock rows |
+| `POST` | `/my-pharmacy/stock/` | Add a medicine the pharmacy doesn't stock yet |
+| `PATCH` | `/my-pharmacy/stock/<id>/` | Update `quantity`, `price` and/or `low_threshold` |
+| `DELETE` | `/my-pharmacy/stock/<id>/` | Remove a stock row |
+
 ### Emergency Services (`emergency`)
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/blood-banks/` | List blood banks. Query params: `district`, `blood_group`, `lat`, `lng`, `radius_km` |
+| `GET` | `/blood-banks/districts/` | Distinct districts that have blood bank rows, for the app's filter chips |
 | `GET` | `/ambulances/` | List ambulance providers. Query params: `district`, `has_icu`, `has_oxygen`, `is_24_hour`, `service_type` |
+| `GET` | `/ambulances/districts/` | Distinct districts that have ambulance rows |
+
+### Real-Time Stock Sync (`sync`)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/stock/sync/` | POS stock ingestion. Authenticated with an `X-POS-API-Key` header, **not** JWT. Body: `medicine_barcode_or_name`, `quantity_delta`, `transaction_type` (`DISPENSED`/`RESTOCKED`/`ADJUSTED`), `timestamp` |
+| `WS` | `/ws/stock/<pharmacy_id>/` | Live low-stock alerts for one pharmacy. Auth via `?token=<access token>` on the handshake |
 
 ## Authentication Flow
 
@@ -148,9 +180,40 @@ Base path: `/api/v1/`. Interactive docs: `/api/v1/docs/` (Swagger UI), raw schem
 
 Distance calculations (`pharmacy/services.py`) use a plain-Python haversine formula applied after the queryset is fetched, since the development database is SQLite and has no PostGIS extension. This is adequate at the current target scale but should move to a PostGIS `ST_Distance` query if the dataset grows substantially — see the project report for the relevant non-functional requirement.
 
+## Real-Time Stock Sync
+
+The `sync` app is built and working end to end, from POS ingestion through to a live push into the Flutter search screen. The pipeline:
+
+1. A pharmacy's POS terminal `POST`s a stock movement to `/api/v1/stock/sync/`, authenticating with its `X-POS-API-Key` header. `POSKeyAuthentication` resolves the key to a `Pharmacy` and sets it as `request.user` — there is no Django user behind a POS request.
+2. `apply_stock_change()` (in `pharmacy/services.py`) applies the delta inside a row lock and writes an append-only `StockTransaction` audit row. The same function backs the owner dashboard's manual edits, so both paths produce identical audit trails.
+3. A `post_save` receiver on `StockTransaction` defers to `transaction.on_commit()`, then re-reads the committed stock row. If the quantity is at or below `low_threshold`, it broadcasts a `stock_alert` to the `pharmacy_<id>` channel group. Deferring matters: broadcasting from inside the atomic block would announce quantities that a later rollback erases, and there is no un-send.
+4. `StockConsumer` pushes that JSON to every client watching `ws://<host>/ws/stock/<pharmacy_id>/`. The Flutter client (`lib/services/stock_alert_service.dart`) subscribes to the top search result and updates its stock chips in place.
+
+**WebSocket authentication.** Browsers can't set custom headers on a WebSocket handshake, so `JWTAuthMiddleware` reads the access token from the query string (`?token=…`) rather than an `Authorization` header. An unauthenticated connection is accepted and then closed with code `4401`, which the Dart client uses as its cue to refresh the token and reconnect once. The trade-off — tokens can land in server access logs — is documented in `sync/middleware.py`.
+
+**Running it.** `daphne` is first in `INSTALLED_APPS`, so `python manage.py runserver` already serves ASGI and handles WebSocket upgrades; no separate process is needed for local development.
+
+**Channel layer.** `CHANNEL_LAYERS` currently uses `InMemoryChannelLayer`, which is correct for a single-process dev server but does not carry messages between workers. The `channels-redis` dependency is installed and the `RedisChannelLayer` config is present but commented out in `settings.py` — swapping it in is the one remaining step for a multi-worker deployment.
+
+**Exercising it without a POS.** `python manage.py simulate_pos` posts realistic dispensing/restocking events to the real endpoint at a configurable interval, weighted so it actually crosses `low_threshold` and triggers alerts. A `POSIntegrationKey` must exist for the target pharmacy (create one in Django admin).
+
+## Testing
+
+```bash
+python manage.py test          # 84 tests
+```
+
+The `sync` suite covers the consumer (group delivery, cross-pharmacy isolation, and rejection of absent/garbage/expired/deleted-user/deactivated-user tokens), the signal receiver (threshold boundaries, payload shape, rollback safety), and the ingestion endpoint (auth failures, unknown medicines, concurrency).
+
+**A note on `test_concurrent_requests_do_not_lose_updates`.** `apply_stock_change()` guards its read-modify-write with `select_for_update()`, which is a documented no-op on SQLite (Django's backend sets `has_select_for_update = False`). That test used to fail for exactly this reason. It passes now because `OPTIONS['transaction_mode'] = 'IMMEDIATE'` in `settings.py` makes every atomic block take SQLite's write lock up front, serialising the writers. **Do not remove `select_for_update()`** — it is what provides the same guarantee on PostgreSQL, which is the specified production database. The test is also a `TransactionTestCase` against a file-backed test database on purpose; the shared-cache in-memory default would fail it for reasons unrelated to the application.
+
 ## Roadmap
 
-- [ ] Real-time pharmacy stock synchronization via Django Channels + Redis (`sync/` app)
+- [x] Real-time pharmacy stock synchronization via Django Channels (`sync/` app) — **done**
+- [ ] Swap the in-memory channel layer for Redis (`channels-redis`) so alerts survive multiple workers
 - [ ] PostgreSQL + PostGIS for production and large-scale proximity queries
 - [ ] Push notifications for emergency/stock alerts
+- [ ] Real-time ambulance dispatch status — availability is currently approximated by the `is_24_hour` boolean, not a live status field (see the placeholder note in `lib/services/emergency_service.dart`)
+- [ ] Barcode lookup for `medicine_barcode_or_name`, which currently matches on name only
+- [ ] Dedupe strategy for retried POS events (today two identical posts apply twice, by design and under test)
 - [ ] Rate limiting & production-hardened CORS/security settings
