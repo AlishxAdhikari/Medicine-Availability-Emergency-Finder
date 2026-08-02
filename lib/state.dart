@@ -111,6 +111,15 @@ class Pharmacy {
   final String address;
   final bool isOpen;
   final List<Map<String, dynamic>> items; // {'name': 'Insulin', 'inStock': true}
+  // Real coordinates straight off Pharmacy.latitude/longitude (non-null in the
+  // Django model), used to place the map marker and to build the Directions
+  // intent. Nullable here rather than required because these come from JSON
+  // and a serializer change shouldn't be able to crash the search screen --
+  // the map skips a pin it can't place, and Directions reports "no location".
+  final double? latitude;
+  final double? longitude;
+  // `blank=True` on the model, so a real row can genuinely have no number.
+  final String phone;
 
   Pharmacy({
     required this.id,
@@ -119,7 +128,12 @@ class Pharmacy {
     required this.address,
     required this.isOpen,
     required this.items,
+    this.latitude,
+    this.longitude,
+    this.phone = '',
   });
+
+  bool get hasCoordinates => latitude != null && longitude != null;
 }
 
 class Ambulance {
@@ -127,12 +141,18 @@ class Ambulance {
   final String location;
   final String distance;
   final bool isAvailable;
+  // AmbulanceProvider has no lat/lng in the backend -- these are matched by
+  // district, not coordinates -- so there is deliberately no position here and
+  // ambulances never appear on a map. `phone` is required on that model, so
+  // unlike the others this one should always be dialable.
+  final String phone;
 
   Ambulance({
     required this.name,
     required this.location,
     required this.distance,
     required this.isAvailable,
+    this.phone = '',
   });
 }
 
@@ -148,13 +168,22 @@ class BloodBank {
   final String location;
   final String distance;
   final List<BloodStock> availability;
+  // Same shape and same reasoning as Pharmacy's -- see the note there.
+  final double? latitude;
+  final double? longitude;
+  final String phone;
 
   BloodBank({
     required this.name,
     required this.location,
     required this.distance,
     required this.availability,
+    this.latitude,
+    this.longitude,
+    this.phone = '',
   });
+
+  bool get hasCoordinates => latitude != null && longitude != null;
 }
 
 class AppStateManager {

@@ -26,8 +26,6 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-<<<<<<< HEAD
-=======
 	<!-- Allows plain HTTP to localhost/127.0.0.1 for the local Django dev
 	     server. Remove this once the backend is deployed behind HTTPS. -->
 	<key>NSAppTransportSecurity</key>
@@ -46,7 +44,21 @@
 			</dict>
 		</dict>
 	</dict>
->>>>>>> 30db5e0 (athentication as well as pharmacy search is done but biometric login and database required for proper API integration and maps)
+	<!-- url_launcher checks canLaunchUrl against this allowlist before opening
+	     anything. Without it, Call and Directions silently report "no app
+	     available" on iOS. comgooglemaps is listed so Google Maps is offered
+	     when installed; the https: fallback covers the case where it isn't. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>maps</string>
+		<string>comgooglemaps</string>
+		<string>https</string>
+	</array>
+	<!-- Location is only read while the user is looking at a search screen;
+	     there is no background tracking, so When-In-Use is the whole ask. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>MedAlert uses your location to find the nearest pharmacies, blood banks and ambulance services, and to sort them by how far away they are.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

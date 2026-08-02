@@ -1,5 +1,6 @@
 import '../state.dart' as app_state;
 import 'api_client.dart';
+import 'location_service.dart';
 
 /// Wraps the /api/v1/blood-banks/ and /api/v1/ambulances/ endpoints built
 /// in emergency/views.py, and maps the JSON response into the UI's
@@ -11,22 +12,21 @@ class EmergencyService {
 
   final _client = ApiClient.instance;
 
-  // Same placeholder-location approach as PharmacyService, until real GPS
-  // is wired in.
-  static const double _fallbackLat = 27.7172;
-  static const double _fallbackLng = 85.3240;
-
+  /// [origin] is the point the results are distance-sorted around. Omitted, it
+  /// is resolved from the device via LocationService (same contract as
+  /// PharmacyService.search -- real fix when there is one, a labelled
+  /// Kathmandu fallback when there isn't).
   Future<List<app_state.BloodBank>> searchBloodBanks({
     String? district,
     String? bloodGroup,
-    double? lat,
-    double? lng,
+    UserLocation? origin,
   }) async {
+    final location = origin ?? await LocationService.instance.current();
     final params = <String, dynamic>{
       if (district != null && district.isNotEmpty) 'district': district,
       if (bloodGroup != null && bloodGroup.isNotEmpty) 'blood_group': bloodGroup,
-      'lat': lat ?? _fallbackLat,
-      'lng': lng ?? _fallbackLng,
+      'lat': location.latitude,
+      'lng': location.longitude,
     };
 
     final results = await _fetchAllPages('/blood-banks/', params);
@@ -143,7 +143,18 @@ class EmergencyService {
           status: _levelToStatus(s['level'] as String),
         );
       }).toList(),
+      latitude: _toDouble(json['latitude']),
+      longitude: _toDouble(json['longitude']),
+      phone: json['phone'] as String? ?? '',
     );
+  }
+
+  /// See PharmacyService._toDouble -- whole-numbered coordinates come back as
+  /// int from JSON, and a hard `as double` cast would throw on them.
+  static double? _toDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
   app_state.Ambulance _toAmbulance(Map<String, dynamic> json) {
@@ -159,6 +170,10 @@ class EmergencyService {
       name: json['name'] as String,
       location: json['district'] as String,
       distance: label,
+      // Required (not blank=True) on AmbulanceProvider, so this should always
+      // be present -- defaulted anyway so a serializer change can't crash the
+      // screen, and the Call button reports "no number on file" instead.
+      phone: json['phone'] as String? ?? '',
       // PLACEHOLDER: there's no real-time "available now" field on the
       // backend yet, so this approximates availability with is_24_hour.
       // Revisit if/when the backend gets a real availability status.
