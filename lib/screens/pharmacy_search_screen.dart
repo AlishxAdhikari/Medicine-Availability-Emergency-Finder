@@ -837,6 +837,7 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
               subtitle: pharmacy.address,
               latitude: pharmacy.latitude!,
               longitude: pharmacy.longitude!,
+              icon: Icons.local_pharmacy,
               // The nearest result -- results come back distance-sorted, so
               // it's the first one with a position.
               isPrimary: pharmacy.id ==

@@ -10,6 +10,7 @@ class MapPlace {
     required this.label,
     required this.latitude,
     required this.longitude,
+    this.icon = Icons.place,
     this.subtitle,
     this.isPrimary = false,
     this.onTap,
@@ -18,6 +19,12 @@ class MapPlace {
   final String label;
   final double latitude;
   final double longitude;
+
+  /// Drawn inside the pin, so what kind of place it is is readable at a
+  /// glance without tapping -- a pharmacy cross vs. a blood drop. Callers pass
+  /// the same icon the list cards use for that record type, so the map and the
+  /// list read as one screen.
+  final IconData icon;
 
   /// Second line in the pin's tap sheet -- an address, or a district.
   final String? subtitle;
@@ -229,9 +236,14 @@ class _ServiceMapState extends State<ServiceMap> {
                   ],
                 ),
                 // OSM's licence requires visible attribution wherever its
-                // tiles are shown.
-                const SimpleAttributionWidget(
-                  source: Text('© OpenStreetMap contributors'),
+                // tiles are shown. Rich rather than Simple: the simple widget
+                // lays the credit out as one unwrappable Row, which overflows
+                // on a narrow phone (and on any device with a large text
+                // scale). This collapses to an "i" badge that expands on tap.
+                const RichAttributionWidget(
+                  attributions: [
+                    TextSourceAttribution('OpenStreetMap contributors'),
+                  ],
                 ),
               ],
             ),
@@ -291,29 +303,50 @@ class _ServiceMapState extends State<ServiceMap> {
     );
   }
 
-  /// The user's position. Drawn as a solid "you are here" dot only for a real
-  /// fix; a fallback gets a hollow, dashed-looking marker so the map never
-  /// asserts the user is standing in the middle of Kathmandu when it simply
+  /// The user's own position, marked distinctly from the result pins so it is
+  /// never mistaken for one: a circular "you are here" badge centred on the
+  /// point, rather than a tailed pin sitting above it.
+  ///
+  /// A real fix gets a solid badge with a person icon. A fallback gets a
+  /// muted, hollow badge with a searching icon instead -- the map must not
+  /// assert the user is standing in the middle of Kathmandu when it simply
   /// doesn't know where they are.
   Widget _buildUserMarker(BuildContext context) {
     final theme = Theme.of(context);
     final origin = widget.origin!;
-    final point = LatLng(origin.latitude, origin.longitude);
+    final isPrecise = origin.isPrecise;
 
     return MarkerLayer(
       markers: [
         Marker(
-          point: point,
-          width: 28,
-          height: 28,
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: origin.isPrecise
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.primary.withValues(alpha: 0.18),
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
+          point: LatLng(origin.latitude, origin.longitude),
+          width: 34,
+          height: 34,
+          child: Tooltip(
+            message: isPrecise
+                ? 'Your location'
+                : 'Approximate area — location unavailable',
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isPrecise
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.surfaceContainerHighest,
+                border: Border.all(
+                  color: isPrecise
+                      ? Colors.white
+                      : theme.colorScheme.outline.withValues(alpha: 0.7),
+                  width: 3,
+                ),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
+              ),
+              child: Icon(
+                isPrecise ? Icons.person : Icons.location_searching,
+                size: 16,
+                color: isPrecise
+                    ? theme.colorScheme.onPrimary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
         ),
@@ -329,21 +362,80 @@ class _ServiceMapState extends State<ServiceMap> {
 
     return Marker(
       point: place.point,
-      width: 44,
-      height: 44,
+      width: 48,
+      height: 52,
       // Puts the whole pin above the coordinate, so its tip -- not its middle
       // -- sits on the place. Default `center` would draw the pharmacy half a
       // pin-height north of where it is.
       alignment: Alignment.topCenter,
       child: GestureDetector(
         onTap: () => setState(() => _selected = isSelected ? null : place),
-        child: Icon(
-          Icons.location_on,
-          size: isSelected ? 44 : 36,
+        child: _IconPin(
+          icon: place.icon,
           color: color,
-          shadows: const [Shadow(color: Colors.black38, blurRadius: 4)],
+          isSelected: isSelected,
         ),
       ),
+    );
+  }
+}
+
+/// A map pin with a category icon inside it: a filled circle carrying the
+/// icon, over a small tail that points at the coordinate.
+///
+/// A bare `Icons.location_on` for every pin means the map can only say
+/// "something is here". The icon is what distinguishes a pharmacy from a
+/// blood bank without a tap, which is the entire reason to look at the map
+/// rather than the list.
+class _IconPin extends StatelessWidget {
+  const _IconPin({
+    required this.icon,
+    required this.color,
+    required this.isSelected,
+  });
+
+  final IconData icon;
+  final Color color;
+  final bool isSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final diameter = isSelected ? 40.0 : 34.0;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: diameter,
+          height: diameter,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            // A white ring keeps the pin legible against dark map features --
+            // a coloured circle on a grey-green park reads as part of the map.
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 5)],
+          ),
+          child: Icon(
+            icon,
+            size: diameter * 0.5,
+            color: Colors.white,
+          ),
+        ),
+        // The tail. Drawn as a rotated square rather than a CustomPainter --
+        // it is a triangle behind a circle, so only the bottom corner shows.
+        Transform.translate(
+          offset: const Offset(0, -6),
+          child: Transform.rotate(
+            angle: 0.785398, // 45°
+            child: Container(
+              width: 10,
+              height: 10,
+              color: color,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
