@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_client.dart';
 import '../services/gemini_prescription_service.dart';
+import '../services/launcher_service.dart';
+import '../services/location_service.dart';
 import '../services/pharmacy_service.dart';
 import '../services/stock_alert_service.dart';
 import '../state.dart';
+import '../widgets/location_notice.dart';
+import '../widgets/service_map.dart';
 
 class PharmacySearchScreen extends StatefulWidget {
   const PharmacySearchScreen({super.key});
@@ -20,6 +24,12 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
   List<Pharmacy> _results = [];
   bool _isLoading = true;
   String? _error;
+
+  /// Where the search is being run from. Resolved once per fetch and reused
+  /// for the request origin, the map's "you are here" marker and the banner
+  /// below -- three things that must agree, so they share one read rather than
+  /// each asking the GPS separately.
+  UserLocation? _location;
 
   // Live stock alerts (sync/ pipeline): connected to whichever pharmacy is
   // currently the top search result. Scope decision -- the app has no
@@ -336,12 +346,23 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
     );
   }
 
-  Future<void> _fetchPharmacies() async {
+  Future<void> _fetchPharmacies({bool refreshLocation = false}) async {
     setState(() => _isLoading = true);
     try {
+      // Resolved here rather than inside PharmacyService so the map and the
+      // banner get the exact point the results were sorted around -- a second
+      // read could return a different (or newly permitted) position and leave
+      // the pins disagreeing with the distances on the cards.
+      final location = await LocationService.instance.current(
+        forceRefresh: refreshLocation,
+      );
+      if (!mounted) return;
+      setState(() => _location = location);
+
       final results = await PharmacyService.instance.search(
         query: AppStateManager.instance.pharmacySearchQueryNotifier.value,
         radiusKm: AppStateManager.instance.pharmacyRadiusNotifier.value,
+        origin: location,
       );
       if (!mounted) return;
       setState(() {
@@ -477,6 +498,22 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
         ),
         const SizedBox(height: 16),
 
+        // Says so when the distances below are measured from a guessed point
+        // rather than the user's actual position, and offers the one action
+        // that can fix it.
+        LocationNotice(
+          location: _location,
+          onRetry: () => _fetchPharmacies(refreshLocation: true),
+        ),
+
+        // On phones the map doesn't get its own column, so it rides above the
+        // results. Without this the map would only ever exist on tablets and
+        // desktop, which is where it is least needed.
+        if (!isWide && _results.any((p) => p.hasCoordinates)) ...[
+          SizedBox(height: 220, child: _buildMap(context)),
+          const SizedBox(height: 16),
+        ],
+
         // Radius Filter
         ValueListenableBuilder<double>(
           valueListenable: AppStateManager.instance.pharmacyRadiusNotifier,
@@ -609,7 +646,7 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                   const SizedBox(width: 24),
                   Expanded(
                     flex: 8,
-                    child: _buildMapViewPlaceholder(context),
+                    child: _buildMap(context),
                   ),
                 ],
               )
@@ -742,7 +779,12 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () {},
+                    // Disabled rather than silently no-op when there is
+                    // nothing to navigate to -- a button that looks live and
+                    // does nothing is what this screen had before.
+                    onPressed: pharmacy.hasCoordinates
+                        ? () => _openDirections(pharmacy)
+                        : null,
                     icon: const Icon(Icons.directions, size: 16),
                     label: const Text('Directions', style: TextStyle(fontSize: 11)),
                     style: OutlinedButton.styleFrom(
@@ -755,7 +797,11 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () {},
+                    // `phone` is blank=True on the model, so plenty of real
+                    // rows have nothing to dial.
+                    onPressed: pharmacy.phone.trim().isEmpty
+                        ? null
+                        : () => _callPharmacy(pharmacy),
                     icon: const Icon(Icons.call, size: 16),
                     label: const Text('Call', style: TextStyle(fontSize: 11)),
                     style: OutlinedButton.styleFrom(
@@ -773,95 +819,69 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
     );
   }
 
-  Widget _buildMapViewPlaceholder(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF191C20) : const Color(0xFFF1F3FC),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          // Styled Map Graphic using CustomPainter or background pattern
-          Positioned.fill(
-            child: Opacity(
-              opacity: isDark ? 0.15 : 0.85,
-              child: Image.network(
-                'https://lh3.googleusercontent.com/aida-public/AB6AXuAHFlpvqnskCcVaoItUBd64zJn12fJXR5PQl-GZ8RdEHD2VbvzQgQbC_g7jmWZ8FyC0Zs0Bakvmi-WDzua3QyG0y38yJEbnyhQFyaBGVeGe5E73Ap62KfNTa_cwqQSPOn4uNI-CBJ-r9FhcEsm6OEZawmT5MjotGpEnKz1JQrMn55H5jJPkvRbkRj5YG6dWNBRksBQA9wbV7jBXAFrsvuphyqe7zqqaL6Xgyf1uV8ZzCbCkD_2TAd0C7wTojMIYtJwrNhSvonHWWjIh',
-                fit: BoxFit.cover,
-              ),
+  /// The real map. Pins are the actual search results at their actual
+  /// coordinates, so the view changes with the query and with where the user
+  /// is standing -- unlike the static image and two fixed labels this
+  /// replaced.
+  Widget _buildMap(BuildContext context) {
+    return ServiceMap(
+      origin: _location,
+      emptyMessage: _results.isEmpty
+          ? 'No pharmacies in this radius'
+          : 'These pharmacies have no coordinates on file',
+      places: [
+        for (final pharmacy in _results)
+          if (pharmacy.hasCoordinates)
+            MapPlace(
+              label: pharmacy.name,
+              subtitle: pharmacy.address,
+              latitude: pharmacy.latitude!,
+              longitude: pharmacy.longitude!,
+              // The nearest result -- results come back distance-sorted, so
+              // it's the first one with a position.
+              isPrimary: pharmacy.id ==
+                  _results.firstWhere((p) => p.hasCoordinates).id,
+              onTap: () => _openDirections(pharmacy),
             ),
-          ),
-          if (isDark)
-            Positioned.fill(
-              child: Container(color: Colors.black.withValues(alpha: 0.65)),
-            ),
-
-          // Map Pins
-          Positioned(
-            top: 200,
-            left: 250,
-            child: _buildMapPin(context, 'City Central', isPrimary: true),
-          ),
-          Positioned(
-            top: 120,
-            left: 100,
-            child: _buildMapPin(context, 'MediQuick 24/7', isPrimary: false),
-          ),
-
-          // Recenter FAB
-          Positioned(
-            bottom: 24,
-            right: 24,
-            child: FloatingActionButton(
-              mini: true,
-              backgroundColor: theme.colorScheme.primaryContainer,
-              foregroundColor: theme.colorScheme.onPrimaryContainer,
-              child: const Icon(Icons.my_location),
-              onPressed: () {},
-            ),
-          ),
-        ],
-      ),
+      ],
+      onRecenter: () async {
+        final location = await LocationService.instance.current(forceRefresh: true);
+        if (!mounted) return location;
+        setState(() => _location = location);
+        // A recenter that finally gets a real fix should also re-sort the
+        // results around it; otherwise the map moves to the user and the list
+        // underneath still describes distances from somewhere else.
+        if (location.isPrecise) _fetchPharmacies();
+        return location;
+      },
     );
   }
 
-  Widget _buildMapPin(BuildContext context, String label, {required bool isPrimary}) {
-    final theme = Theme.of(context);
+  Future<void> _openDirections(Pharmacy pharmacy) async {
+    final result = await LauncherService.instance.openDirections(
+      lat: pharmacy.latitude,
+      lng: pharmacy.longitude,
+      label: pharmacy.name,
+    );
+    if (!mounted) return;
+    showLaunchFailure(
+      context,
+      result,
+      missingDataMessage: 'No location on file for ${pharmacy.name}.',
+      noHandlerMessage: 'No maps app is available on this device.',
+      failedMessage: 'Could not open directions.',
+    );
+  }
 
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: isPrimary ? theme.colorScheme.primaryContainer : theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: isPrimary ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Icon(
-          Icons.location_on,
-          size: 28,
-          color: isPrimary ? theme.colorScheme.primary : theme.colorScheme.secondary,
-        ),
-      ],
+  Future<void> _callPharmacy(Pharmacy pharmacy) async {
+    final result = await LauncherService.instance.dial(pharmacy.phone);
+    if (!mounted) return;
+    showLaunchFailure(
+      context,
+      result,
+      missingDataMessage: 'No phone number on file for ${pharmacy.name}.',
+      noHandlerMessage: 'No dialer is available on this device.',
+      failedMessage: 'Could not open the dialer.',
     );
   }
 }

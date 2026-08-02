@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../state.dart';
 import '../services/emergency_service.dart';
+import '../services/launcher_service.dart';
+import '../services/location_service.dart';
+import '../widgets/location_notice.dart';
+import '../widgets/service_map.dart';
 
 class EmergencyScreen extends StatefulWidget {
   const EmergencyScreen({super.key});
@@ -46,6 +50,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   // drops.
   int _requestId = 0;
 
+  /// The point the blood-bank list is distance-sorted around, shared with the
+  /// map and the "location is off" banner so all three agree. Ambulances are
+  /// matched by district and don't use it.
+  UserLocation? _location;
+
   ValueNotifier<String> get _districtNotifier =>
       AppStateManager.instance.selectedDistrictNotifier;
 
@@ -72,7 +81,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   // Filtering is done by the API's own ?district= filter rather than
   // client-side: the endpoints are paginated, so filtering a single fetched
   // page client-side hid whole districts once the dataset passed 20 rows.
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool refreshLocation = false}) async {
     final requestId = ++_requestId;
     setState(() {
       _loadingLists = true;
@@ -80,6 +89,17 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       _canRetry = true;
     });
     try {
+      // Resolved once, up front, and handed to searchBloodBanks below so the
+      // map's "you are here" marker and the distances on the cards come from
+      // the same reading. Failure here is already swallowed inside
+      // LocationService (it returns the labelled fallback), so this cannot be
+      // what takes the emergency screen down.
+      final location = await LocationService.instance.current(
+        forceRefresh: refreshLocation,
+      );
+      if (!mounted || requestId != _requestId) return;
+      setState(() => _location = location);
+
       // The set of districts comes from the data and doesn't change while the
       // screen is open, so it's fetched once. Refetching it per chip tap would
       // put a whole round trip in front of every list load, for an answer we
@@ -122,7 +142,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       _loadedDistrict = district;
 
       final ambulances = await EmergencyService.instance.searchAmbulances(district: district);
-      final bloodBanks = await EmergencyService.instance.searchBloodBanks(district: district);
+      final bloodBanks = await EmergencyService.instance.searchBloodBanks(
+        district: district,
+        origin: location,
+      );
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _ambulances = ambulances;
@@ -154,10 +177,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     }
   }
 
+  /// Nepal's national ambulance number.
+  static const String _nationalAmbulanceNumber = '102';
+
   void _showSOSCallDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Row(
             children: [
@@ -167,32 +193,47 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             ],
           ),
           content: const Text(
-            'Are you sure you want to place an emergency call to 102 (National Ambulance Service)?',
+            'This opens your phone\'s dialer with 102 (National Ambulance '
+            'Service) entered. You will still need to press call.',
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Calling 102...'),
-                    backgroundColor: Color(0xFFBA1A1A),
-                  ),
+                Navigator.pop(dialogContext);
+                _dial(
+                  _nationalAmbulanceNumber,
+                  subject: 'the national ambulance service',
                 );
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFBA1A1A),
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Call'),
+              child: const Text('Open dialer'),
             ),
           ],
         );
       },
+    );
+  }
+
+  /// Hands [number] to the system dialer. Silent on success -- the dialer is
+  /// now in front of the user, and a SnackBar saying "Calling..." over the top
+  /// of it is exactly the theatre this screen used to do instead of calling.
+  Future<void> _dial(String number, {required String subject}) async {
+    final result = await LauncherService.instance.dial(number);
+    if (!mounted) return;
+    showLaunchFailure(
+      context,
+      result,
+      missingDataMessage: 'No phone number on file for $subject.',
+      noHandlerMessage: 'No dialer is available on this device. '
+          'Dial $number manually.',
+      failedMessage: 'Could not open the dialer. Dial $number manually.',
     );
   }
 
@@ -252,6 +293,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               },
             ),
             const SizedBox(height: 16),
+
+            // Blood banks are distance-sorted, so say so when that distance is
+            // measured from a guessed point.
+            LocationNotice(
+              location: _location,
+              onRetry: () => _loadData(refreshLocation: true),
+            ),
 
             // SOS Ambulance Button
             GestureDetector(
@@ -500,14 +548,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Calling ${amb.name}...'),
-                    backgroundColor: theme.colorScheme.primary,
-                  ),
-                );
-              },
+              onPressed: amb.phone.trim().isEmpty
+                  ? null
+                  : () => _dial(amb.phone, subject: amb.name),
               icon: const Icon(Icons.call, size: 16),
               label: const Text('Call Now', style: TextStyle(fontWeight: FontWeight.bold)),
               style: ElevatedButton.styleFrom(
@@ -627,7 +670,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
           valueListenable: state.isBloodBankMapViewNotifier,
           builder: (context, isMapMode, _) {
             if (isMapMode) {
-              return _buildBloodBankMapPlaceholder(context);
+              return _buildBloodBankMap(context);
             }
 
             return ValueListenableBuilder<String>(
@@ -661,72 +704,70 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     );
   }
 
-  Widget _buildBloodBankMapPlaceholder(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+  /// The blood-bank map. Real tiles, real markers at the banks' own
+  /// coordinates -- the toggle used to switch to a static street photo with
+  /// two icons nailed to fixed pixel offsets, which showed the same thing in
+  /// every district.
+  Widget _buildBloodBankMap(BuildContext context) {
+    if (_loadingLists) return _buildListLoader();
 
-    return Container(
-      height: 240,
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF15181C) : const Color(0xFFF1F3FC),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Opacity(
-              opacity: isDark ? 0.2 : 0.8,
-              child: Image.network(
-                'https://lh3.googleusercontent.com/aida-public/AB6AXuAHFlpvqnskCcVaoItUBd64zJn12fJXR5PQl-GZ8RdEHD2VbvzQgQbC_g7jmWZ8FyC0Zs0Bakvmi-WDzua3QyG0y38yJEbnyhQFyaBGVeGe5E73Ap62KfNTa_cwqQSPOn4uNI-CBJ-r9FhcEsm6OEZawmT5MjotGpEnKz1JQrMn55H5jJPkvRbkRj5YG6dWNBRksBQA9wbV7jBXAFrsvuphyqe7zqqaL6Xgyf1uV8ZzCbCkD_2TAd0C7wTojMIYtJwrNhSvonHWWjIh',
-                fit: BoxFit.cover,
+    final plotted = _bloodBanks.where((b) => b.hasCoordinates).toList();
+
+    return SizedBox(
+      height: 260,
+      child: ServiceMap(
+        origin: _location,
+        emptyMessage: _bloodBanks.isEmpty
+            ? 'No blood banks in ${_loadedDistrict ?? 'this district'}'
+            : 'These blood banks have no coordinates on file',
+        places: [
+          for (final bank in plotted)
+            MapPlace(
+              label: bank.name,
+              subtitle: bank.distance.isEmpty
+                  ? bank.location
+                  : '${bank.location} • ${bank.distance}',
+              latitude: bank.latitude!,
+              longitude: bank.longitude!,
+              isPrimary: identical(bank, plotted.first),
+              onTap: () => _openDirections(
+                lat: bank.latitude,
+                lng: bank.longitude,
+                label: bank.name,
               ),
             ),
-          ),
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.map,
-                  size: 48,
-                  color: theme.colorScheme.outline.withValues(alpha: 0.5),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Blood Banks Map View',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Markers
-          Positioned(
-            top: 60,
-            left: 100,
-            child: Icon(
-              Icons.location_on,
-              color: theme.colorScheme.error,
-              size: 32,
-            ),
-          ),
-          Positioned(
-            top: 140,
-            left: 180,
-            child: Icon(
-              Icons.location_on,
-              color: theme.colorScheme.error,
-              size: 32,
-            ),
-          ),
         ],
+        onRecenter: () async {
+          final location = await LocationService.instance.current(forceRefresh: true);
+          if (!mounted) return location;
+          setState(() => _location = location);
+          // A newly-real fix changes the distance ordering, so the list behind
+          // the map has to be re-fetched or it would keep describing distances
+          // from the old point.
+          if (location.isPrecise) _loadData();
+          return location;
+        },
       ),
+    );
+  }
+
+  Future<void> _openDirections({
+    required double? lat,
+    required double? lng,
+    required String label,
+  }) async {
+    final result = await LauncherService.instance.openDirections(
+      lat: lat,
+      lng: lng,
+      label: label,
+    );
+    if (!mounted) return;
+    showLaunchFailure(
+      context,
+      result,
+      missingDataMessage: 'No location on file for $label.',
+      noHandlerMessage: 'No maps app is available on this device.',
+      failedMessage: 'Could not open directions.',
     );
   }
 
@@ -836,22 +877,48 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               }).toList(),
             ),
             const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Contacting ${bank.name} Transfusion Center...'),
-                    backgroundColor: theme.colorScheme.primary,
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: bank.phone.trim().isEmpty
+                        ? null
+                        : () => _dial(bank.phone, subject: bank.name),
+                    icon: const Icon(Icons.call, size: 16),
+                    label: const Text('Call Center',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor:
+                          isDark ? const Color(0xFF282A2F) : const Color(0xFFF1F3FC),
+                      foregroundColor: theme.colorScheme.primary,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
-                );
-              },
-              icon: const Icon(Icons.call, size: 16),
-              label: const Text('Call Center', style: TextStyle(fontWeight: FontWeight.bold)),
-              style: OutlinedButton.styleFrom(
-                backgroundColor: isDark ? const Color(0xFF282A2F) : const Color(0xFFF1F3FC),
-                foregroundColor: theme.colorScheme.primary,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    // BloodBank does carry lat/lng, so unlike ambulances these
+                    // can genuinely be navigated to.
+                    onPressed: bank.hasCoordinates
+                        ? () => _openDirections(
+                              lat: bank.latitude,
+                              lng: bank.longitude,
+                              label: bank.name,
+                            )
+                        : null,
+                    icon: const Icon(Icons.directions, size: 16),
+                    label: const Text('Directions',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor:
+                          isDark ? const Color(0xFF282A2F) : const Color(0xFFF1F3FC),
+                      foregroundColor: theme.colorScheme.primary,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
