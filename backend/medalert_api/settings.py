@@ -23,10 +23,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-#-4iijzk*&b_fuj%21q%l6tmrcnm2tn_3@kehex05i2&b6_r6-'
+SECRET_KEY = config(
+    'SECRET_KEY',
+    default='django-insecure-#-4iijzk*&b_fuj%21q%l6tmrcnm2tn_3@kehex05i2&b6_r6-',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '10.0.2.2', '0.0.0.0']
 
@@ -94,43 +97,19 @@ WSGI_APPLICATION = 'medalert_api.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-        'OPTIONS': {
-            # SQLite has no row-level locking, so the select_for_update() in
-            # pharmacy/services.py's apply_stock_change() is a documented no-op
-            # here (Django's SQLite backend sets has_select_for_update = False
-            # and silently ignores it rather than erroring). Without something
-            # in its place, two writes to the same stock row read the same
-            # starting quantity and the second overwrites the first -- the
-            # classic lost update, and exactly what
-            # test_concurrent_requests_do_not_lose_updates reproduces.
-            #
-            # IMMEDIATE makes every atomic block open with BEGIN IMMEDIATE,
-            # taking SQLite's single write lock up front instead of starting
-            # read-only and trying to upgrade mid-transaction. The read and the
-            # write in apply_stock_change() are then genuinely serialised, and
-            # a would-be concurrent writer waits at BEGIN rather than racing
-            # (or failing with "database is locked" on the upgrade).
-            'transaction_mode': 'IMMEDIATE',
-            # How long a waiting writer blocks before giving up. The default of
-            # 5s is what turned contention into an OperationalError instead of
-            # a short wait.
-            'timeout': 20,
-            # WAL lets readers -- every pharmacy search hitting this API --
-            # keep working while a POS write holds the write lock, instead of
-            # queueing behind it. NORMAL is WAL's usual durability trade.
-            'init_command': 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
-        },
-        'TEST': {
-            # A real file, not the in-memory default. The concurrency test
-            # fires 10 threads at the API, and Django's shared-cache in-memory
-            # test database locks whole TABLES between connections -- so that
-            # test would keep failing on an artefact of the test harness even
-            # once the production configuration above is correct. A file-backed
-            # test DB exercises the same locking the app actually runs on.
-            'NAME': BASE_DIR / 'test_db.sqlite3',
-        },
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DATABASE_NAME', default='medalert_api'),
+        'USER': config('DATABASE_USER', default='postgres'),
+        'PASSWORD': config('DATABASE_PASSWORD', default=''),
+        'HOST': config('DATABASE_HOST', default='localhost'),
+        'PORT': config('DATABASE_PORT', default='5432'),
+        # PostgreSQL has real row-level locking, so select_for_update() in
+        # pharmacy/services.py's apply_stock_change() genuinely serialises
+        # concurrent writers on the same stock row here (unlike SQLite, where
+        # it's a documented no-op). Do not remove select_for_update() -- see
+        # the note on test_concurrent_requests_do_not_lose_updates in the
+        # README/tests.
+        'CONN_MAX_AGE': config('DATABASE_CONN_MAX_AGE', default=60, cast=int),
     }
 }
 
