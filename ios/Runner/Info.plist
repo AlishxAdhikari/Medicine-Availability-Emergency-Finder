@@ -26,10 +26,23 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<!-- Allows plain HTTP to localhost/127.0.0.1 for the local Django dev
-	     server. Remove this once the backend is deployed behind HTTPS. -->
+	<!-- Allows plain HTTP to the local Django dev server. Remove this once the
+	     backend is deployed behind HTTPS.
+
+	     NSAllowsLocalNetworking is the one that matters on a physical device:
+	     the localhost/127.0.0.1 exceptions below only cover the phone talking
+	     to itself, which is never what we want on hardware. A real iPhone
+	     reaches the dev server at a LAN address like 192.168.1.64:8000, and
+	     without this key iOS blocks every http:// and ws:// request to it,
+	     silently, and identically to the server being down.
+
+	     Preferred over NSAllowsArbitraryLoads because it permits exactly the
+	     local-network traffic we need and still blocks cleartext to the
+	     public internet. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
 			<key>localhost</key>
@@ -44,6 +57,12 @@
 			</dict>
 		</dict>
 	</dict>
+	<!-- iOS 14+ prompts before an app may talk to devices on the local
+	     network, and this string is what the prompt shows. Without the key the
+	     request is denied outright; if the user taps "Don't Allow", every
+	     backend call fails in a way indistinguishable from a dead server. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MedAlert connects to the MedAlert server running on your local network to look up pharmacies, medicine stock and emergency services.</string>
 	<!-- url_launcher checks canLaunchUrl against this allowlist before opening
 	     anything. Without it, Call and Directions silently report "no app
 	     available" on iOS. comgooglemaps is listed so Google Maps is offered
@@ -59,6 +78,14 @@
 	     there is no background tracking, so When-In-Use is the whole ask. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MedAlert uses your location to find the nearest pharmacies, blood banks and ambulance services, and to sort them by how far away they are.</string>
+	<!-- image_picker's two sources, used by the AI prescription scanner. iOS
+	     terminates the app outright when a usage description is missing for a
+	     permission it requests, so without these the scanner does not degrade
+	     gracefully. It crashes on first use. -->
+	<key>NSCameraUsageDescription</key>
+	<string>MedAlert uses your camera to photograph a prescription so it can read the medicine names and search for them nearby.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MedAlert needs access to your photos so you can choose an existing prescription photo to scan.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
