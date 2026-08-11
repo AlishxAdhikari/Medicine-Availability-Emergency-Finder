@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io' show Platform;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'api_client.dart';
+import 'server_config.dart';
 
 /// One message pushed from sync/consumers.py's StockConsumer, matching the
 /// payload shape built in sync/signals.py's check_threshold():
@@ -32,7 +31,7 @@ class StockAlert {
 }
 
 /// Opens a WebSocket connection to sync/routing.py's
-/// ws/stock/<pharmacy_id>/ endpoint and exposes incoming low-stock alerts
+/// `ws/stock/<pharmacy_id>/` endpoint and exposes incoming low-stock alerts
 /// as a Dart Stream. One instance per active connection -- call connect()
 /// when a screen starts watching a pharmacy, and dispose() when it stops
 /// (e.g. in the State's dispose() method), otherwise the socket and its
@@ -53,15 +52,11 @@ class StockAlertService {
   /// milliseconds and so never clears the flag.
   static const Duration _provenConnectionAge = Duration(seconds: 30);
 
-  /// Mirrors ApiClient.baseUrl's platform logic (see api_client.dart) but
-  /// for the ws:// scheme and without the /api/v1 prefix, since the
-  /// WebSocket route is mounted at the ASGI root (medalert_api/asgi.py),
-  /// not under DRF's /api/v1/.
-  String get _wsBaseUrl {
-    if (kIsWeb) return 'ws://127.0.0.1:8000';
-    if (Platform.isAndroid) return 'ws://192.168.1.64:8000';
-    return 'ws://127.0.0.1:8000';
-  }
+  /// Shares ServerConfig with ApiClient, so the REST and WebSocket URLs are
+  /// guaranteed to name the same machine. ServerConfig.wsBaseUrl keeps the
+  /// ws:// scheme and omits the /api/v1 prefix, since the WebSocket route is
+  /// mounted at the ASGI root (medalert_api/asgi.py), not under DRF.
+  String get _wsBaseUrl => ServerConfig.instance.wsBaseUrl;
 
   /// Connects to a specific pharmacy's stock-alert group. Returns a
   /// broadcast stream so multiple widgets could listen if needed, though

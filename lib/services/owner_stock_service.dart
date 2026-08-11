@@ -89,6 +89,85 @@ List<OwnerStock> parseStockPayload(dynamic data) {
       .toList();
 }
 
+/// One row of the pharmacy's stock ledger, as returned by
+/// OwnerTransactionSerializer in sync/serializers.py.
+///
+/// These rows are the audit log written by apply_stock_change() on every
+/// stock movement -- a sale through the POS, a restock, a manual correction.
+/// They have always been recorded; this is the first client that reads them.
+class StockTransactionEntry {
+  final int id;
+  final String medicineName;
+
+  /// Signed: negative for a dispense, positive for a restock. The sign is
+  /// what the UI colours on, so it is kept rather than being split into a
+  /// magnitude plus a direction flag.
+  final int quantityDelta;
+
+  /// One of DISPENSED / RESTOCKED / ADJUSTED (StockTransaction.TRANSACTION_TYPES).
+  final String transactionType;
+
+  /// POS_SYNC or MANUAL (StockTransaction.SOURCE_TYPES).
+  final String source;
+
+  /// Null for POS_SYNC rows, which authenticate with a pharmacy-wide
+  /// integration key and have no user behind them. The UI shows the source
+  /// instead in that case rather than inventing a name.
+  final String? changedByUsername;
+
+  /// When the server recorded it. Preferred over client_timestamp for
+  /// display: a POS with a wrong clock would otherwise scatter entries
+  /// through the feed at times that never happened.
+  final DateTime serverTimestamp;
+
+  StockTransactionEntry({
+    required this.id,
+    required this.medicineName,
+    required this.quantityDelta,
+    required this.transactionType,
+    required this.source,
+    required this.changedByUsername,
+    required this.serverTimestamp,
+  });
+
+  bool get isDispense => quantityDelta < 0;
+
+  factory StockTransactionEntry.fromJson(Map<String, dynamic> json) {
+    return StockTransactionEntry(
+      id: json['id'] as int,
+      medicineName: json['medicine_name'] as String? ?? 'Unknown medicine',
+      quantityDelta: json['quantity_delta'] as int,
+      transactionType: json['transaction_type'] as String,
+      source: json['source'] as String,
+      changedByUsername: json['changed_by_username'] as String?,
+      serverTimestamp: DateTime.parse(json['server_timestamp'] as String).toLocal(),
+    );
+  }
+}
+
+/// Reads the paginated transaction feed.
+///
+/// Unlike [parseStockPayload], which refuses a truncated list, taking only the
+/// first page is correct here. The ledger is append-only and ordered
+/// newest-first (StockTransaction.Meta.ordering), so page one *is* the recent
+/// activity the screen is asking for -- there is no row on page two that the
+/// owner is missing from "what just happened". The stock list had the opposite
+/// property: a medicine on page two is simply invisible, and the owner would
+/// try to re-add it.
+List<StockTransactionEntry> parseTransactionPayload(dynamic data) {
+  final rows = switch (data) {
+    List() => data,
+    {'results': final List results} => results,
+    _ => throw FormatException(
+        'Unexpected /my-pharmacy/transactions/ payload: ${data.runtimeType}',
+      ),
+  };
+  return rows
+      .map((row) =>
+          StockTransactionEntry.fromJson(Map<String, dynamic>.from(row as Map)))
+      .toList();
+}
+
 /// Wraps /api/v1/my-pharmacy/stock/ -- the owner-only write API built in
 /// pharmacy/owner_views.py. Every call is authenticated; the backend
 /// resolves which pharmacy from the token, so no pharmacy id is ever sent.
@@ -148,5 +227,15 @@ class OwnerStockService {
 
   Future<void> removeStock(int stockId) async {
     await _client.delete('/my-pharmacy/stock/$stockId/', auth: true);
+  }
+
+  /// Recent stock movements for this pharmacy, newest first.
+  ///
+  /// Served by sync/views.py's OwnerTransactionViewSet, which scopes rows to
+  /// the pharmacy behind the caller's token -- so, as everywhere else in this
+  /// service, no pharmacy id is sent.
+  Future<List<StockTransactionEntry>> fetchTransactions() async {
+    final data = await _client.get('/my-pharmacy/transactions/', auth: true);
+    return parseTransactionPayload(data);
   }
 }

@@ -1,8 +1,7 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'server_config.dart';
 
 /// Thrown for any non-2xx response. `errors` holds the parsed JSON body
 /// when the server sent one (DRF validation errors, e.g. {"email": [...]})
@@ -32,16 +31,13 @@ class ApiClient {
   static const _accessKey = 'access_token';
   static const _refreshKey = 'refresh_token';
 
-  /// Android emulators can't reach the host machine via localhost -- they
-  /// need the special 10.0.2.2 alias. iOS simulators and desktop/web can
-  /// use localhost directly. Change this if you're testing on a physical
-  /// device (use your machine's LAN IP instead).
-  String get baseUrl {
-    if (kIsWeb) return 'http://127.0.0.1:8000/api/v1';
-    if (Platform.isAndroid) return 'http://192.168.1.64:8000/api/v1';
-    return 'http://127.0.0.1:8000/api/v1';
-  }
-  
+  /// Which backend to talk to now lives in ServerConfig, shared with
+  /// StockAlertService so the http and ws URLs can never point at different
+  /// machines. Set the build-time default with
+  /// `--dart-define=MEDALERT_HOST=<ip>:8000`, or change it at runtime from
+  /// the in-app settings screen.
+  String get baseUrl => ServerConfig.instance.httpBaseUrl;
+
 
   Future<void> saveTokens({required String access, required String refresh}) async {
     await _storage.write(key: _accessKey, value: access);
