@@ -182,16 +182,21 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
             ElevatedButton(
               onPressed: () async {
                 final text = controller.text.trim();
+                // Resolved BEFORE the await. Two different contexts are in
+                // play -- `ctx` belongs to the dialog and `context` to this
+                // screen -- and checking one does not vouch for the other, so
+                // the messenger is looked up while the screen is definitely
+                // still alive rather than after the gap.
+                final messenger = ScaffoldMessenger.of(context);
                 await GeminiPrescriptionService.instance.setApiKey(text);
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Gemini API key saved successfully'),
-                      backgroundColor: Color(0xFF00897B),
-                    ),
-                  );
-                }
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (!mounted) return; // screen left while the key was saving
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Gemini API key saved successfully'),
+                    backgroundColor: Color(0xFF00897B),
+                  ),
+                );
               },
               child: const Text('Save Key'),
             ),

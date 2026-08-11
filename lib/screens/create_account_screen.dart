@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
@@ -176,6 +175,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       }
 
       AppStateManager.instance.setLoggedIn(true);
+      // enroll() above is an async gap, so the check at the top of this block
+      // no longer covers us: leaving the screen mid-enrollment would navigate
+      // with a dead context. The account is already created either way.
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
     } on ApiException catch (e) {
       if (!mounted) return;
