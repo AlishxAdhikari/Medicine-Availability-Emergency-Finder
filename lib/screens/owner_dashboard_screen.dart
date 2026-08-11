@@ -141,6 +141,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   // most needs to know a medicine just ran out was the only one not listening.
   final StockAlertService _alertService = StockAlertService();
   StreamSubscription<StockAlert>? _alertSubscription;
+  StreamSubscription<StockTransactionEntry>? _transactionSubscription;
 
   @override
   void initState() {
@@ -153,6 +154,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   @override
   void dispose() {
     _alertSubscription?.cancel();
+    _transactionSubscription?.cancel();
     _alertService.disconnect();
     super.dispose();
   }
@@ -175,9 +177,29 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         return;
       }
       _alertSubscription = stream.listen(_onStockAlert);
+      // Read after connect(), which creates the controller this exposes.
+      // Carries every stock movement, not just threshold crossings, so the
+      // Activity tab updates on each sale as it commits.
+      _transactionSubscription =
+          _alertService.transactions.listen(_onStockTransaction);
     } catch (_) {
       // No socket, no live updates. The dashboard still works.
     }
+  }
+
+  /// Prepends a movement pushed over the socket.
+  ///
+  /// Newest-first, matching StockTransaction.Meta.ordering, so a live row
+  /// lands exactly where the same row would appear after a refresh.
+  void _onStockTransaction(StockTransactionEntry entry) {
+    if (!mounted) return;
+    setState(() {
+      // The server can deliver a row this screen already has: _loadTransactions
+      // runs on a socket reconnect, and it fetches rows the socket may also
+      // push. Keying on id keeps the feed from showing the same sale twice.
+      if (_transactions.any((t) => t.id == entry.id)) return;
+      _transactions.insert(0, entry);
+    });
   }
 
   void _onStockAlert(StockAlert alert) {
@@ -198,15 +220,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         );
       }
     });
-
-    // An alert means stock just moved, so the ledger has a new row. Refetching
-    // is event-driven rather than polled, but note it only covers movements
-    // that crossed the low-stock threshold: sync/signals.py raises an alert
-    // from check_threshold(), not on every transaction. Ordinary sales above
-    // the threshold reach the feed on the next pull-to-refresh or tab switch.
-    // Making every sale appear the instant it happens needs the server to
-    // broadcast all transactions, not just threshold crossings.
-    _loadTransactions();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

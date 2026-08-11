@@ -164,3 +164,88 @@ class StockConsumerTests(TransactionTestCase):
         await database_sync_to_async(self.user.save)()
         communicator = WebsocketCommunicator(application, self.url(1))
         await self._assert_rejected_with_4401(communicator, "A deactivated user's token should have been rejected")
+
+class OwnerTransactionBroadcastTests(TransactionTestCase):
+    """The stock ledger is owner-only, so the socket that carries it must be
+    too.
+
+    sync/consumers.py deliberately lets any signed-in user join a pharmacy's
+    public group, because that group only ever carries data GET
+    /pharmacies/<id>/stock/ already serves. The ledger is different: it is the
+    pharmacy's trading history, exposed by /my-pharmacy/transactions/ behind
+    IsPharmacyOwner. These tests pin the boundary between the two.
+    """
+
+    def setUp(self):
+        from pharmacy.models import Pharmacy, PharmacyOwner
+
+        self.pharmacy = Pharmacy.objects.create(
+            name='Ledger Pharmacy', address='Somewhere', district='Kathmandu',
+            latitude=27.7172, longitude=85.3240,
+        )
+        self.owner = User.objects.create_user(username='owner', password='pw123456!')
+        PharmacyOwner.objects.create(user=self.owner, pharmacy=self.pharmacy)
+        self.outsider = User.objects.create_user(username='nosy', password='pw123456!')
+
+    def url_for(self, user):
+        token = str(RefreshToken.for_user(user).access_token)
+        return f'/ws/stock/{self.pharmacy.id}/?token={token}'
+
+    async def _send_transaction(self):
+        await get_channel_layer().group_send(
+            f'pharmacy_{self.pharmacy.id}_owner',
+            {
+                'type': 'stock_transaction',
+                'data': {'event': 'stock_transaction', 'id': 1,
+                         'medicine_name': 'Paracetamol', 'quantity_delta': -2},
+            },
+        )
+
+    async def test_owner_receives_transaction_broadcasts(self):
+        communicator = WebsocketCommunicator(application, self.url_for(self.owner))
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        await self._send_transaction()
+
+        message = await communicator.receive_json_from(timeout=2)
+        self.assertEqual(message['event'], 'stock_transaction')
+        self.assertEqual(message['quantity_delta'], -2)
+
+        await communicator.disconnect()
+
+    async def test_non_owner_never_receives_transaction_broadcasts(self):
+        """The point of the separate group: a signed-in stranger may watch
+        this pharmacy for low-stock alerts, but must not see its sales."""
+        communicator = WebsocketCommunicator(application, self.url_for(self.outsider))
+        connected, _ = await communicator.connect()
+        # Still allowed on the socket -- only the owner group is restricted.
+        self.assertTrue(connected)
+
+        await self._send_transaction()
+
+        self.assertTrue(await communicator.receive_nothing(timeout=1))
+
+        await communicator.disconnect()
+
+    async def test_non_owner_still_receives_public_stock_alerts(self):
+        """Guards against over-correcting: adding the owner group must not
+        have narrowed the public one."""
+        communicator = WebsocketCommunicator(application, self.url_for(self.outsider))
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        await get_channel_layer().group_send(
+            f'pharmacy_{self.pharmacy.id}',
+            {
+                'type': 'stock_alert',
+                'data': {'event': 'stock_alert', 'medicine_id': 1,
+                         'medicine_name': 'Paracetamol', 'quantity': 0,
+                         'level': 'critical'},
+            },
+        )
+
+        message = await communicator.receive_json_from(timeout=2)
+        self.assertEqual(message['event'], 'stock_alert')
+
+        await communicator.disconnect()

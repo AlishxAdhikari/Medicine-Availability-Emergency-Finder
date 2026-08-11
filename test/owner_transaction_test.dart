@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medalert/services/owner_stock_service.dart';
+import 'package:medalert/services/stock_alert_service.dart';
 
 /// Covers the decoding half of the owner activity feed. The payloads below
 /// mirror what sync/serializers.py's OwnerTransactionSerializer emits.
@@ -120,6 +121,49 @@ void main() {
 
     test('handles an empty feed', () {
       expect(parseTransactionPayload({'count': 0, 'results': []}), isEmpty);
+    });
+  });
+
+  group('socket message routing', () {
+    // Both message kinds arrive on one socket, so isTransactionMessage is what
+    // keeps a sale from being decoded as an alert (and silently vanishing from
+    // the feed) or vice versa.
+    test('routes a tagged transaction to the transaction stream', () {
+      final payload = row()..['event'] = 'stock_transaction';
+      expect(isTransactionMessage(payload), isTrue);
+      // And it must decode with the same code path as a fetched row.
+      expect(StockTransactionEntry.fromJson(payload).quantityDelta, -2);
+    });
+
+    test('routes a tagged alert to the alert stream', () {
+      expect(
+        isTransactionMessage({
+          'event': 'stock_alert',
+          'medicine_id': 1,
+          'medicine_name': 'Paracetamol',
+          'quantity': 0,
+          'level': 'critical',
+        }),
+        isFalse,
+      );
+    });
+
+    test('treats an untagged message as an alert', () {
+      // A server predating the `event` key could only have sent alerts.
+      // Guessing "transaction" instead would throw on every message.
+      expect(
+        isTransactionMessage({
+          'medicine_id': 1,
+          'medicine_name': 'Paracetamol',
+          'quantity': 0,
+          'level': 'critical',
+        }),
+        isFalse,
+      );
+    });
+
+    test('does not mistake an unrelated event value for a transaction', () {
+      expect(isTransactionMessage({'event': 'something_else'}), isFalse);
     });
   });
 }

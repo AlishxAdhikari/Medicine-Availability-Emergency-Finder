@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'api_client.dart';
+import 'owner_stock_service.dart' show StockTransactionEntry;
 import 'server_config.dart';
 
 /// One message pushed from sync/consumers.py's StockConsumer, matching the
@@ -30,6 +31,21 @@ class StockAlert {
   }
 }
 
+/// True when a socket message is a stock-ledger row rather than a low-stock
+/// alert.
+///
+/// Both kinds arrive on the same socket, tagged by sync/signals.py with an
+/// `event` key. Pulled out as a pure top-level function -- same reasoning as
+/// parseStockPayload in owner_stock_service.dart -- because the routing
+/// decision is the one part of the socket layer worth testing without a
+/// server.
+///
+/// An untagged message is treated as an alert: that is all a server predating
+/// the `event` key could have sent. Erring the other way would feed an alert
+/// payload to StockTransactionEntry.fromJson and throw on every message.
+bool isTransactionMessage(Map<String, dynamic> json) =>
+    json['event'] == 'stock_transaction';
+
 /// Opens a WebSocket connection to sync/routing.py's
 /// `ws/stock/<pharmacy_id>/` endpoint and exposes incoming low-stock alerts
 /// as a Dart Stream. One instance per active connection -- call connect()
@@ -39,6 +55,14 @@ class StockAlert {
 class StockAlertService {
   WebSocketChannel? _channel;
   StreamController<StockAlert>? _controller;
+
+  /// Ledger rows pushed on the same socket. Owners only: the server sends
+  /// these to the `pharmacy_<id>_owner` group, which sync/consumers.py joins a
+  /// connection to only when the user actually owns this pharmacy. A
+  /// non-owner's socket therefore never carries them, so this stream simply
+  /// stays silent rather than needing to filter anything.
+  StreamController<StockTransactionEntry>? _transactionController;
+
   bool _retriedAfterAuthFailure = false;
 
   /// Bumped by every connect()/disconnect(). _attach captures it and rechecks
@@ -76,9 +100,24 @@ class StockAlertService {
     // token refresh and never sees the socket flap.
     final controller = StreamController<StockAlert>.broadcast();
     _controller = controller;
+    _transactionController = StreamController<StockTransactionEntry>.broadcast();
     await _attach(pharmacyId, _generation);
     return controller.stream;
   }
+
+  /// Every stock movement for the connected pharmacy, as it commits.
+  ///
+  /// Exposed as a getter rather than returned from [connect] so the existing
+  /// single-return signature stays intact for the screens that only care
+  /// about alerts. Read it after connect(); like the alert stream it survives
+  /// a token-refresh reconnect, and it closes when [disconnect] runs.
+  ///
+  /// Empty (but valid) before the first connect(), so a caller that listens
+  /// eagerly does not need a null check.
+  Stream<StockTransactionEntry> get transactions =>
+      (_transactionController ??=
+              StreamController<StockTransactionEntry>.broadcast())
+          .stream;
 
   Future<void> _attach(int pharmacyId, int generation) async {
     final token = await ApiClient.instance.accessToken;
@@ -99,7 +138,12 @@ class StockAlertService {
       (raw) {
         try {
           final json = jsonDecode(raw as String) as Map<String, dynamic>;
-          _controller?.add(StockAlert.fromJson(json));
+          // Two message kinds share this socket; see isTransactionMessage.
+          if (isTransactionMessage(json)) {
+            _transactionController?.add(StockTransactionEntry.fromJson(json));
+          } else {
+            _controller?.add(StockAlert.fromJson(json));
+          }
         } catch (_) {
           // Malformed message from the server -- drop it rather than
           // crashing the whole stream for one bad payload.
@@ -111,6 +155,7 @@ class StockAlertService {
         // alerts" as normal rather than fatal.
         if (generation != _generation) return; // superseded; not ours to close
         _controller?.close();
+        _transactionController?.close();
       },
       onDone: () async {
         // 4401 from sync/consumers.py means the access token was missing,
@@ -143,6 +188,7 @@ class StockAlertService {
           if (_controller == null || generation != _generation) return;
         }
         _controller?.close();
+        _transactionController?.close();
       },
     );
   }
@@ -155,5 +201,7 @@ class StockAlertService {
     _channel = null;
     _controller?.close();
     _controller = null;
+    _transactionController?.close();
+    _transactionController = null;
   }
 }

@@ -35,7 +35,52 @@ def check_threshold(sender, instance, created, **kwargs):
     #
     # Outside a transaction, on_commit runs the callback immediately, so the
     # POS path behaves exactly as before.
+    transaction.on_commit(lambda: broadcast_transaction(instance))
     transaction.on_commit(lambda: broadcast_if_low(instance))
+
+
+def broadcast_transaction(txn):
+    """Pushes every committed stock movement to the pharmacy's owner group.
+
+    Separate from broadcast_if_low because the two answer different
+    questions. A low-stock alert is exceptional and public -- any signed-in
+    user watching this pharmacy sees it, because the quantity behind it is
+    already served publicly by GET /pharmacies/<id>/stock/. This one is
+    routine and private: it is the pharmacy's trading history, which only
+    /my-pharmacy/transactions/ exposes and only to the owner. Hence the
+    _owner group, whose membership consumers.py gates on ownership.
+
+    Deliberately NOT suppressed by skip_low_stock_alert. That flag means "this
+    movement is not worth warning anyone about" -- an opening quantity the
+    owner just typed, or the zeroing that precedes a row being deleted. Both
+    are still real ledger rows that /my-pharmacy/transactions/ returns, so
+    omitting them here would make the live feed disagree with the same feed
+    after a refresh.
+
+    The payload matches OwnerTransactionSerializer field for field, so the
+    client decodes a pushed row with exactly the same code as a fetched one.
+    """
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f'pharmacy_{txn.pharmacy_id}_owner',
+        {
+            'type': 'stock_transaction',  # must match the method in consumers.py
+            'data': {
+                'event': 'stock_transaction',
+                'id': txn.id,
+                'medicine': txn.medicine_id,
+                'medicine_name': txn.medicine.name,
+                'quantity_delta': txn.quantity_delta,
+                'transaction_type': txn.transaction_type,
+                'source': txn.source,
+                'changed_by_username': (
+                    txn.changed_by.username if txn.changed_by_id else None
+                ),
+                'client_timestamp': txn.client_timestamp.isoformat(),
+                'server_timestamp': txn.server_timestamp.isoformat(),
+            },
+        },
+    )
 
 
 def broadcast_if_low(txn):
@@ -65,6 +110,10 @@ def broadcast_if_low(txn):
         {
             'type': 'stock_alert',  # must match the method name in consumers.py
             'data': {
+                # Discriminator, so a client reading one socket can tell the
+                # two message kinds apart. Absent on messages sent by older
+                # servers, which the client treats as a stock_alert.
+                'event': 'stock_alert',
                 'medicine_id': txn.medicine_id,
                 'medicine_name': txn.medicine.name,
                 'quantity': stock.quantity,
