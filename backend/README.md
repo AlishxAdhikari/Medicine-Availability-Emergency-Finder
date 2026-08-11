@@ -80,7 +80,7 @@ source venv/bin/activate        # macOS/Linux
 # venv\Scripts\activate         # Windows
 
 pip install -r requirements.txt
-cp ../.env.example .env         # then fill in your own values
+cp .env.example .env            # then fill in your own values
 python manage.py migrate
 python manage.py createsuperuser   # optional, for /admin/
 python manage.py seed_pharmacies   # optional, populates sample pharmacies/medicines/stock
@@ -88,21 +88,40 @@ python manage.py seed_emergency    # optional, populates sample ambulances/blood
 python manage.py runserver
 ```
 
-The server listens on `http://127.0.0.1:8000/` by default. `ALLOWED_HOSTS` in `settings.py` already includes `127.0.0.1`, `localhost`, and `10.0.2.2` (the Android emulator's alias for the host machine), so no extra config is needed to talk to the Flutter app out of the box.
+For emulator and desktop work the defaults are enough: `ALLOWED_HOSTS` covers `127.0.0.1`, `localhost`, and `10.0.2.2` (the Android emulator's alias for the host machine).
+
+### Running against physical phones
+
+Testing on real devices needs two extra steps, and skipping either produces the same symptom — the app behaves as though the server is down.
+
+1. **Bind to all interfaces.** `python manage.py runserver` listens on `127.0.0.1` only, which no other device can reach:
+
+   ```bash
+   python manage.py runserver 0.0.0.0:8000
+   ```
+
+2. **Add your LAN IP to `ALLOWED_HOSTS`** in `.env`. A phone hitting `http://192.168.1.64:8000` sends `Host: 192.168.1.64:8000`; any host not listed is rejected with **400 DisallowedHost**. Find the IP with `ipconfig` (Windows) or `ifconfig` / `ip addr` (macOS, Linux).
+
+Also allow inbound TCP 8000 through the firewall on the private network profile — on Windows the first run usually raises a prompt, and dismissing it silently blocks every phone.
+
+Point the app at the same address either at build time (`flutter build apk --dart-define=MEDALERT_HOST=192.168.1.64:8000`) or at runtime via the app's **Server settings** screen, reachable from the login screen. Its "Test connection" button reports which of these steps is wrong.
+
+Note that this address changes whenever the router assigns a different lease, so re-check it before any demo on an unfamiliar network.
 
 ## Environment Variables
 
-Defined in `.env.example` at the project root and read via `python-decouple` / `dj-database-url`:
+Defined in `backend/.env.example` and read via `python-decouple` / `dj-database-url`:
 
 ```
-CORS_ALLOWED_ORIGINS=      # Comma-separated allowed origins, e.g. http://localhost:3000 (only used when DEBUG=False)
 SECRET_KEY=your_secure_key_here
+DEBUG=True
+ALLOWED_HOSTS=            # Comma-separated; must include your LAN IP for device testing
+CORS_ALLOWED_ORIGINS=     # Comma-separated allowed origins, e.g. http://localhost:3000 (only used when DEBUG=False)
 DATABASE_NAME=medalert_api
 DATABASE_USER=postgres
 DATABASE_PASSWORD=your_db_password
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
-DEBUG=True
 ```
 
 While `DEBUG=True`, CORS is wide open (`CORS_ALLOW_ALL_ORIGINS = True`) to simplify local development against the Flutter app on any platform. Set `DEBUG=False` and populate `CORS_ALLOWED_ORIGINS` for anything resembling a production deployment.

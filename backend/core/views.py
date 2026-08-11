@@ -2,6 +2,7 @@ from django.contrib.auth import authenticate, get_user_model
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import MedicalProfile
 from .serializers import (
@@ -15,10 +16,22 @@ from .serializers import (
 User = get_user_model()
 
 
+class ThrottledLoginView(TokenObtainPairView):
+    """simplejwt's login view, rate-limited.
+
+    Subclassed purely to attach a throttle scope: the endpoint is
+    unauthenticated and password-checking, so without one it will answer
+    guesses as fast as they arrive. Rate lives in settings.py under
+    DEFAULT_THROTTLE_RATES['login'].
+    """
+    throttle_scope = 'login'
+
+
 class RegisterView(generics.CreateAPIView):
     """POST /api/v1/auth/register/"""
     permission_classes = [permissions.AllowAny]
     serializer_class = RegisterSerializer
+    throttle_scope = 'register'
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -33,6 +46,7 @@ class LoginIdentifierView(generics.GenericAPIView):
     """POST /api/v1/auth/login-identifier/"""
     permission_classes = [permissions.AllowAny]
     serializer_class = LoginIdentifierSerializer
+    throttle_scope = 'login'
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -48,13 +62,15 @@ class LoginIdentifierView(generics.GenericAPIView):
             user = User.objects.filter(username__iexact=identifier).first()
 
         if user is None:
-            try:
-                from .models import MedicalProfile
-
-                profile = MedicalProfile.objects.filter(phone_number__iexact=identifier).first()
-                user = profile.user if profile is not None else None
-            except Exception:
-                user = None
+            # Neither an email nor a username matched, so treat the identifier
+            # as a phone number. .filter().first() already returns None when
+            # there is no match -- this used to sit inside a bare
+            # `except Exception: user = None`, which caught nothing this lookup
+            # actually raises and instead turned genuine database errors into
+            # "no active account found", hiding real outages behind what looks
+            # like a wrong password.
+            profile = MedicalProfile.objects.filter(phone_number__iexact=identifier).first()
+            user = profile.user if profile is not None else None
             if user is None:
                 return Response({'detail': 'No active account found with the given credentials'}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -120,5 +136,6 @@ class SharedProfileView(generics.RetrieveAPIView):
     """
     permission_classes = [permissions.AllowAny]
     serializer_class = SharedProfileSerializer
+    throttle_scope = 'shared_profile'
     queryset = MedicalProfile.objects.all()
     lookup_field = 'share_token'

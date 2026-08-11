@@ -1,19 +1,31 @@
-<<<<<<< HEAD
+# Resolved from a three-way merge that was committed with its conflict
+# markers still in place. This file is the union of both sides -- no pattern
+# that either branch ignored has been dropped, so nothing previously ignored
+# suddenly becomes tracked.
+
 # Environments
 env/
-.env
-.venv/
-venv/
-
-=======
-<<<<<<< HEAD
 env
 .env
+.venv/
 .venv
+venv/
 venv
 
-=======
->>>>>>> 4e5b93c214ba1d7b2709066fae092c56b47c927e
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Django
+*.sqlite3
+*.sqlite3-journal
+staticfiles/
+media/
+
 # Miscellaneous
 *.class
 *.log
@@ -28,15 +40,12 @@ venv
 .swiftpm/
 migrate_working_dir/
 
-<<<<<<< HEAD
-=======
 # IntelliJ related
 *.iml
 *.ipr
 *.iws
 .idea/
 
->>>>>>> 4e5b93c214ba1d7b2709066fae092c56b47c927e
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
 # is commented out by default.
@@ -62,17 +71,3 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-<<<<<<< HEAD
-
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# Python
-__pycache__/
-=======
->>>>>>> 0fca900409283e63d957a1e621ea7b6a80a69092
->>>>>>> 4e5b93c214ba1d7b2709066fae092c56b47c927e
-

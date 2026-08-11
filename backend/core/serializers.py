@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
 from rest_framework import serializers
 
 from .models import MedicalProfile
@@ -58,7 +59,19 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('A user with this phone number already exists.')
         return value
 
+    @transaction.atomic
     def create(self, validated_data):
+        """Creates the user and their MedicalProfile as one unit.
+
+        The whole method is atomic because the phone number lives on the
+        profile, not the user. Previously the profile write was wrapped in a
+        bare `except Exception: pass`, so a failure there left a user who had
+        registered with a phone number but had none stored -- and login by
+        phone would then fail forever, with no error at signup to explain it
+        and nothing in the logs. Registration failing loudly is far better
+        than an account that is quietly half-created: the user can simply try
+        again, whereas the broken account needs manual repair.
+        """
         phone = validated_data.pop('phone', '').strip()
         full_name = validated_data.pop('full_name', '').strip()
 
@@ -76,18 +89,12 @@ class RegisterSerializer(serializers.ModelSerializer):
             user.last_name = last_name
             user.save(update_fields=['first_name', 'last_name'])
 
-        # If a phone number was provided, create or update the user's
-        # MedicalProfile to store it so login-by-phone can resolve the user.
-        try:
-            from .models import MedicalProfile
-            profile, _ = MedicalProfile.objects.get_or_create(user=user)
-            if phone:
-                profile.phone_number = phone
-                profile.save()
-        except Exception:
-            # If medical profile isn't available for some reason, don't
-            # fail user creation; profile will be created lazily elsewhere.
-            pass
+        # Always create the profile, so /medical-id/ has a row to read and
+        # login-by-phone can resolve the user.
+        profile, _ = MedicalProfile.objects.get_or_create(user=user)
+        if phone:
+            profile.phone_number = phone
+            profile.save(update_fields=['phone_number'])
         return user
 
 

@@ -1,7 +1,11 @@
 asgiref==3.11.1
 attrs==26.1.0
 dj-database-url==3.1.2
-Django
+# Pinned to the version the project is actually developed against. Left
+# unpinned, a fresh `pip install -r requirements.txt` picks up whatever is
+# newest, so CI and a teammate's laptop can silently run a different major
+# version of Django than the one this code was tested on.
+Django==5.2.16
 django-cors-headers==4.9.0
 django-filter==25.2
 djangorestframework==3.18.0

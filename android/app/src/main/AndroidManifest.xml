@@ -14,6 +14,12 @@
          placing the call themselves, so the user always gets a last look
          before an emergency line rings. -->
 
+    <!-- usesCleartextTraffic is required because the app talks to the Django
+         dev server over plain http:// and ws:// on the LAN. Android blocks
+         cleartext by default from targetSdk 28 onwards, and the failure is
+         silent: every request fails exactly as if the server were down. The
+         iOS counterpart is NSAllowsLocalNetworking in ios/Runner/Info.plist.
+         Both should be removed once the backend is served over HTTPS. -->
     <application
         android:label="medalert"
         android:name="${applicationName}"

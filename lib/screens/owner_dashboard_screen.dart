@@ -118,6 +118,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   List<OwnerStock> _stock = [];
   bool _loading = true;
   String? _error;
+
+  // The stock ledger behind the "Activity" tab. Loaded separately from _stock
+  // so a failure on one tab never blanks the other -- the stock list is what
+  // the owner actually works in, and it must not disappear because an audit
+  // feed could not be fetched.
+  List<StockTransactionEntry> _transactions = [];
+  bool _activityLoading = true;
+  String? _activityError;
   // Per-row inline errors, keyed by stock id, so one rejected edit doesn't
   // replace the whole list with an error screen.
   final Map<int, String> _rowErrors = {};
@@ -138,6 +146,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   void initState() {
     super.initState();
     _load();
+    _loadTransactions();
     _subscribeToAlerts();
   }
 
@@ -189,6 +198,15 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         );
       }
     });
+
+    // An alert means stock just moved, so the ledger has a new row. Refetching
+    // is event-driven rather than polled, but note it only covers movements
+    // that crossed the low-stock threshold: sync/signals.py raises an alert
+    // from check_threshold(), not on every transaction. Ordinary sales above
+    // the threshold reach the feed on the next pull-to-refresh or tab switch.
+    // Making every sale appear the instant it happens needs the server to
+    // broadcast all transactions, not just threshold crossings.
+    _loadTransactions();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -288,6 +306,51 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       setState(() {
         _error = _offlineMessage;
         _loading = false;
+      });
+    }
+  }
+
+  /// Fetches the stock ledger for the Activity tab.
+  ///
+  /// Deliberately never sets [_error]: that field drives the whole-screen
+  /// error state for the stock list. A failure here is confined to
+  /// [_activityError] so the owner keeps working in a dashboard whose audit
+  /// tab happens to be unavailable.
+  Future<void> _loadTransactions() async {
+    if (!mounted) return;
+    setState(() {
+      _activityLoading = true;
+      _activityError = null;
+    });
+    try {
+      final transactions = await OwnerStockService.instance.fetchTransactions();
+      if (!mounted) return;
+      setState(() {
+        _transactions = transactions;
+        _activityLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      // Session and ownership handling matches _load(): these are conditions
+      // of the whole session, not of this one request, so they still route
+      // away from the screen rather than showing a per-tab error.
+      if (isSessionExpired(e)) {
+        _leaveAsSignedOut();
+        return;
+      }
+      if (isOwnershipRevoked(e)) {
+        _leaveAsRevokedOwner();
+        return;
+      }
+      setState(() {
+        _activityError = e.message;
+        _activityLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _activityError = _offlineMessage;
+        _activityLoading = false;
       });
     }
   }
@@ -791,31 +854,113 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: ValueListenableBuilder<String>(
-          valueListenable: AppStateManager.instance.ownedPharmacyNameNotifier,
-          builder: (context, name, _) => Text(name.isEmpty ? 'My Pharmacy' : name),
+    // DefaultTabController rather than a TabController field: nothing outside
+    // build() needs to drive or read the tab index, so the extra State
+    // plumbing and its dispose() would buy nothing.
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: ValueListenableBuilder<String>(
+            valueListenable: AppStateManager.instance.ownedPharmacyNameNotifier,
+            builder: (context, name, _) => Text(name.isEmpty ? 'My Pharmacy' : name),
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.home_outlined),
+              tooltip: 'Open the main app',
+              onPressed: () => Navigator.pushNamed(context, '/home'),
+            ),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Logout',
+              onPressed: _confirmLogout,
+            ),
+          ],
+          bottom: const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Stock'),
+              Tab(icon: Icon(Icons.receipt_long_outlined), text: 'Activity'),
+            ],
+          ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.home_outlined),
-            tooltip: 'Open the main app',
-            onPressed: () => Navigator.pushNamed(context, '/home'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: _confirmLogout,
-          ),
-        ],
+        // Shown on both tabs. Adding a medicine is a reasonable thing to want
+        // while reading the ledger, and hiding it would mean listening to the
+        // tab index purely to take a button away.
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _addMedicine,
+          icon: const Icon(Icons.add),
+          label: const Text('Add medicine'),
+        ),
+        body: TabBarView(
+          children: [
+            _buildBody(theme),
+            _buildActivity(theme),
+          ],
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addMedicine,
-        icon: const Icon(Icons.add),
-        label: const Text('Add medicine'),
+    );
+  }
+
+  /// The stock ledger: what was dispensed, restocked or adjusted, newest
+  /// first. The rows come from StockTransaction, which the backend has always
+  /// written on every stock change but never exposed until now.
+  Widget _buildActivity(ThemeData theme) {
+    if (_activityLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_activityError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+              const SizedBox(height: 12),
+              Text(_activityError!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: _loadTransactions,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_transactions.isEmpty) {
+      // AlwaysScrollableScrollPhysics so pull-to-refresh still works on an
+      // empty list -- otherwise there is nothing to drag and the owner cannot
+      // recheck without leaving the screen.
+      return RefreshIndicator(
+        onRefresh: _loadTransactions,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            Padding(
+              padding: EdgeInsets.all(24.0),
+              child: Text(
+                'No stock movements yet. Sales and restocks will appear here as '
+                'they happen.',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadTransactions,
+      child: ListView.separated(
+        itemCount: _transactions.length,
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (context, index) =>
+            _ActivityRow(entry: _transactions[index]),
       ),
-      body: _buildBody(theme),
     );
   }
 
@@ -915,6 +1060,80 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// One line of the stock ledger.
+///
+/// Reads at a glance as "what happened, to what, how much, when": the sign of
+/// the delta is carried by both colour and an explicit +/- so it does not rely
+/// on colour alone, which would be invisible to a colour-blind owner and in
+/// bright sunlight.
+class _ActivityRow extends StatelessWidget {
+  const _ActivityRow({required this.entry});
+
+  final StockTransactionEntry entry;
+
+  /// "2 minutes ago" beats a wall-clock time for a feed whose whole point is
+  /// recency -- the owner cares that a sale just happened, not that it was
+  /// 14:32. Falls back to a date once relative time stops being useful.
+  static String _relativeTime(DateTime timestamp) {
+    final delta = DateTime.now().difference(timestamp);
+    if (delta.inSeconds < 60) return 'just now';
+    if (delta.inMinutes < 60) return '${delta.inMinutes} min ago';
+    if (delta.inHours < 24) {
+      return '${delta.inHours} hour${delta.inHours == 1 ? '' : 's'} ago';
+    }
+    if (delta.inDays < 7) {
+      return '${delta.inDays} day${delta.inDays == 1 ? '' : 's'} ago';
+    }
+    final d = timestamp;
+    return '${d.day}/${d.month}/${d.year}';
+  }
+
+  /// Who or what made the change. changed_by is null for POS_SYNC rows, which
+  /// authenticate with a pharmacy-wide key and have no user behind them, so
+  /// the source is named instead of leaving a blank.
+  String get _attribution {
+    if (entry.source == 'POS_SYNC') return 'POS';
+    return entry.changedByUsername ?? 'Manual';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDispense = entry.isDispense;
+    final deltaColor =
+        isDispense ? theme.colorScheme.error : theme.colorScheme.primary;
+
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: deltaColor.withValues(alpha: 0.12),
+        child: Icon(
+          isDispense ? Icons.arrow_downward : Icons.arrow_upward,
+          color: deltaColor,
+          size: 20,
+        ),
+      ),
+      title: Text(
+        entry.medicineName,
+        style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+      ),
+      subtitle: Text(
+        '${entry.transactionType.toLowerCase()} · $_attribution · '
+        '${_relativeTime(entry.serverTimestamp)}',
+        style: theme.textTheme.bodySmall,
+      ),
+      trailing: Text(
+        // Explicit sign: quantity_delta is already negative for a dispense, so
+        // only the positive case needs a '+' adding.
+        entry.quantityDelta > 0 ? '+${entry.quantityDelta}' : '${entry.quantityDelta}',
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: deltaColor,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

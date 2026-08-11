@@ -213,6 +213,19 @@ class _LoginScreenState extends State<LoginScreen> {
                   AppStateManager.instance.toggleTheme();
                 },
               ),
+              // Deliberately placed on the login screen rather than behind
+              // auth: a wrong backend host makes login itself fail, so
+              // settings must be reachable without logging in first.
+              IconButton(
+                tooltip: 'Server settings',
+                icon: Icon(
+                  Icons.dns_outlined,
+                  color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
+                ),
+                onPressed: () {
+                  Navigator.of(context).pushNamed('/settings');
+                },
+              ),
               const SizedBox(width: 8),
             ],
           ),

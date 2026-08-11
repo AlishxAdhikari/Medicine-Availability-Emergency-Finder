@@ -1,0 +1,106 @@
+name: CI
+
+# Runs the checks that were previously only ever run by hand, if at all:
+# the Flutter analyzer (flutter_lints is configured in analysis_options.yaml
+# but nothing enforced it) and both test suites.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  flutter:
+    name: Flutter analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test --coverage
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        # Keep the coverage report even when tests fail; that is precisely
+        # when it is worth looking at.
+        if: always()
+        with:
+          name: flutter-coverage
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+
+  django:
+    name: Django tests
+    runs-on: ubuntu-latest
+
+    # The app is PostgreSQL-specific: pharmacy/services.py relies on
+    # select_for_update() for row-level locking, which is a documented no-op
+    # on SQLite. Running these tests on anything else would pass while proving
+    # nothing about the concurrency they are written to check.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: medalert_api
+        ports:
+          - 5432:5432
+        # Without this the test step can start before Postgres accepts
+        # connections and fail with a connection error rather than a real one.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # Job-level, so both steps below see them. GitHub Actions does not support
+    # YAML anchors, so this is the only way to share settings without
+    # repeating the block per step.
+    env:
+      SECRET_KEY: ci-secret-key-not-used-in-production
+      DEBUG: 'False'
+      ALLOWED_HOSTS: 127.0.0.1,localhost
+      DATABASE_NAME: medalert_api
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: '5432'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check for missing migrations
+        working-directory: backend
+        # Catches a model edited without makemigrations being run -- which
+        # otherwise shows up as a confusing runtime error on someone else's
+        # machine, long after the change.
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run tests
+        working-directory: backend
+        run: python manage.py test --verbosity 2

@@ -31,9 +31,19 @@ SECRET_KEY = config(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '10.0.2.2', '0.0.0.0']
+# Must include the address phones actually type. A device hitting
+# http://192.168.1.64:8000 sends "Host: 192.168.1.64:8000", and Django rejects
+# any host not listed here with 400 DisallowedHost -- which looks exactly like
+# a dead server from the app's side. The default below only covers the
+# development machine itself, so set ALLOWED_HOSTS in .env to your LAN IP
+# before testing on real devices.
+ALLOWED_HOSTS = config(
+    'ALLOWED_HOSTS',
+    default='127.0.0.1,localhost,10.0.2.2,0.0.0.0',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
 
-    
+
 # Application definition
 
 
@@ -118,9 +128,23 @@ ASGI_APPLICATION = 'medalert_api.asgi.application'
 
 CHANNEL_LAYERS = {
     "default": {
+        # SINGLE PROCESS ONLY. InMemoryChannelLayer keeps groups in the
+        # process's own memory, so a stock alert published by one worker is
+        # invisible to clients connected to any other worker. That is fine for
+        # `manage.py runserver` (one process), which is how the demo runs, and
+        # it means several phones watching the same pharmacy all receive
+        # updates.
+        #
+        # Do NOT start multiple workers (e.g. `daphne -w 4`, or gunicorn with
+        # >1 worker) against this backend: real-time updates will reach only
+        # the subset of phones that happened to land on the publishing worker,
+        # and it will look like flaky wifi rather than a config error.
+        #
+        # To scale beyond one process, switch to the Redis layer below --
+        # channels-redis is already in requirements.txt.
         "BACKEND": "channels.layers.InMemoryChannelLayer",
-        #"BACKEND": "channels_redis.core.RedisChannelLayer",
-        #"CONFIG": {"hosts": [("127.0.0.1", 6379)]},
+        # "BACKEND": "channels_redis.core.RedisChannelLayer",
+        # "CONFIG": {"hosts": [("127.0.0.1", 6379)]},
     }
 }
 
@@ -175,6 +199,24 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    # Only views that set throttle_scope are limited; everything else stays
+    # unthrottled. The unauthenticated endpoints are the ones worth covering:
+    # login and register are password-guessing surfaces, and the share endpoint
+    # serves medical data to anyone holding the URL, so an unlimited endpoint
+    # there lets someone walk the token space at whatever rate they like.
+    #
+    # Rates are deliberately loose. These exist to make brute force
+    # impractical, not to police normal use -- a demo where several people log
+    # in and out on the same wifi (one NAT'd IP, so DRF sees them as one
+    # client) must never hit a limit.
+    'DEFAULT_THROTTLE_RATES': {
+        'login': '20/min',
+        'register': '10/min',
+        'shared_profile': '30/min',
+    },
 }
 
 SIMPLE_JWT = {

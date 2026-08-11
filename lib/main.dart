@@ -6,9 +6,15 @@ import 'screens/create_account_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/edit_medical_id_screen.dart';
 import 'screens/owner_dashboard_screen.dart';
+import 'screens/server_settings_screen.dart';
+import 'services/server_config.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Must complete before the first screen can issue a request: ServerConfig's
+  // URL getters are synchronous (they are read on every call), so the saved
+  // host override has to be in memory by the time anything uses them.
+  await ServerConfig.instance.load();
   runApp(const MedAlertApp());
 }
 
@@ -35,6 +41,7 @@ class MedAlertApp extends StatelessWidget {
             '/home': (context) => const AppShell(),
             '/edit_medical_id': (context) => const EditMedicalIdScreen(),
             '/owner': (context) => const OwnerDashboardScreen(),
+            '/settings': (context) => const ServerSettingsScreen(),
           },
         );
       },

@@ -156,10 +156,13 @@ source venv/bin/activate        # macOS/Linux
 # venv\Scripts\activate         # Windows
 
 pip install -r requirements.txt
-cp ../.env.example .env
+cp .env.example .env
 python manage.py migrate
 python manage.py seed_pharmacies   # populate sample pharmacies, medicines & stock
-python manage.py runserver
+
+# Bind to 0.0.0.0, not the default 127.0.0.1, or phones on the same wifi
+# cannot reach the server. Add your LAN IP to ALLOWED_HOSTS in .env too.
+python manage.py runserver 0.0.0.0:8000
 ```
 
 ### 3. Frontend setup (Flutter app)
