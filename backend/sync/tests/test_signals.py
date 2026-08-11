@@ -24,6 +24,7 @@ from django.utils import timezone
 
 from pharmacy.models import Medicine, Pharmacy, PharmacyMedicineStock
 from sync.models import StockTransaction
+from sync.testing import sent_events
 
 
 class ThresholdSignalTests(TestCase):
@@ -87,16 +88,12 @@ class ThresholdSignalTests(TestCase):
         stock = self._make_stock(quantity=3, low_threshold=10)  # already low
         self._dispense(stock, -2)
 
-        self.assertTrue(mock_async_to_sync.called)
-        # async_to_sync(fn) returns a callable; that callable is what
-        # actually got invoked with (group_name, event_dict).
-        wrapped_call = mock_async_to_sync.return_value
-        self.assertTrue(wrapped_call.called)
-        args, _ = wrapped_call.call_args
-        group_name, event = args
+        alerts = sent_events(mock_async_to_sync, 'stock_alert')
+        self.assertEqual(len(alerts), 1)
+        group_name, event = alerts[0]
 
         self.assertEqual(group_name, f'pharmacy_{self.pharmacy.id}')
-        self.assertEqual(event['type'], 'stock_alert')
+        self.assertEqual(event['data']['event'], 'stock_alert')
         self.assertEqual(event['data']['medicine_id'], self.medicine.id)
         self.assertEqual(event['data']['medicine_name'], self.medicine.name)
         self.assertEqual(event['data']['quantity'], 1)  # 3 - 2
@@ -108,24 +105,81 @@ class ThresholdSignalTests(TestCase):
         stock = self._make_stock(quantity=2, low_threshold=10)
         self._dispense(stock, -2)
 
-        wrapped_call = mock_async_to_sync.return_value
-        _, event = wrapped_call.call_args[0]
+        _, event = sent_events(mock_async_to_sync, 'stock_alert')[0]
         self.assertEqual(event['data']['quantity'], 0)
         self.assertEqual(event['data']['level'], 'critical')
 
     @patch('sync.signals.get_channel_layer')
     @patch('sync.signals.async_to_sync')
-    def test_transaction_that_does_not_cross_threshold_does_nothing(
+    def test_transaction_well_above_threshold_pushes_level_but_no_alert(
         self, mock_async_to_sync, mock_get_layer
     ):
-        """Plenty of stock, well above low_threshold -- the signal should
-        do nothing at all: no channel layer lookup, no group_send.
+        """Plenty of stock, well above low_threshold.
+
+        This used to assert the signal did nothing at all. That was the bug
+        behind "live sync only works when stock is nearly empty": a sale from
+        95 to 90 is exactly the movement a customer watching this pharmacy
+        needs to see, and it reached nobody. The routine level update must go
+        out; only the *warning* is withheld.
         """
         stock = self._make_stock(quantity=95, low_threshold=10)
         self._dispense(stock, -5)  # still 90, well above threshold
 
-        mock_get_layer.assert_not_called()
-        mock_async_to_sync.assert_not_called()
+        levels = sent_events(mock_async_to_sync, 'stock_level')
+        self.assertEqual(len(levels), 1)
+        group_name, event = levels[0]
+        self.assertEqual(group_name, f'pharmacy_{self.pharmacy.id}')
+        self.assertEqual(event['data']['event'], 'stock_level')
+        self.assertEqual(event['data']['medicine_id'], self.medicine.id)
+        self.assertEqual(event['data']['medicine_name'], self.medicine.name)
+        self.assertEqual(event['data']['quantity'], 90)
+        self.assertEqual(event['data']['low_threshold'], 10)
+
+        self.assertEqual(sent_events(mock_async_to_sync, 'stock_alert'), [])
+
+    @patch('sync.signals.get_channel_layer')
+    @patch('sync.signals.async_to_sync')
+    def test_level_precedes_alert_when_both_are_sent(
+        self, mock_async_to_sync, mock_get_layer
+    ):
+        """A client applying messages in arrival order must end on the alert,
+        not overwrite it with the level that triggered it.
+        """
+        stock = self._make_stock(quantity=12, low_threshold=10)
+        self._dispense(stock, -4)  # -> 8, at/below threshold
+
+        public = [
+            event['type']
+            for group, event in sent_events(mock_async_to_sync)
+            if group == f'pharmacy_{self.pharmacy.id}'
+        ]
+        self.assertEqual(public, ['stock_level', 'stock_alert'])
+
+    @patch('sync.signals.get_channel_layer')
+    @patch('sync.signals.async_to_sync')
+    def test_skip_low_stock_alert_suppresses_alert_but_not_level(
+        self, mock_async_to_sync, mock_get_layer
+    ):
+        """apply_stock_change(alert=False) means "don't warn about this", not
+        "hide this movement". The owner's ledger push and the public level
+        update both still go out -- otherwise an opening quantity the owner
+        typed would never appear on a customer's screen until they re-searched.
+        """
+        stock = self._make_stock(quantity=3, low_threshold=10)  # already low
+        with self.captureOnCommitCallbacks(execute=True):
+            stock.quantity = 2
+            stock.save()
+            txn = StockTransaction(
+                pharmacy=self.pharmacy, medicine=self.medicine,
+                quantity_delta=-1, transaction_type='ADJUSTED', source='MANUAL',
+                client_timestamp=timezone.now(),
+            )
+            txn.skip_low_stock_alert = True
+            txn.save()
+
+        self.assertEqual(len(sent_events(mock_async_to_sync, 'stock_level')), 1)
+        self.assertEqual(len(sent_events(mock_async_to_sync, 'stock_transaction')), 1)
+        self.assertEqual(sent_events(mock_async_to_sync, 'stock_alert'), [])
 
     @patch('sync.signals.get_channel_layer')
     @patch('sync.signals.async_to_sync')
@@ -150,6 +204,10 @@ class ThresholdSignalTests(TestCase):
         with no PharmacyMedicineStock row (shouldn't normally happen since
         the view always get_or_creates one first), the signal should just
         return quietly instead of raising DoesNotExist.
+
+        The owner ledger push still happens -- it reads only the transaction
+        row, which does exist. What must not happen is a level or an alert
+        describing a stock row that isn't there.
         """
         other_medicine = Medicine.objects.create(
             name='Amoxicillin 250mg', category='Antibiotic',
@@ -164,4 +222,5 @@ class ThresholdSignalTests(TestCase):
                 quantity_delta=-1, transaction_type='DISPENSED', source='POS_SYNC',
                 client_timestamp=timezone.now(),
             )
-        mock_async_to_sync.assert_not_called()
+        self.assertEqual(sent_events(mock_async_to_sync, 'stock_level'), [])
+        self.assertEqual(sent_events(mock_async_to_sync, 'stock_alert'), [])

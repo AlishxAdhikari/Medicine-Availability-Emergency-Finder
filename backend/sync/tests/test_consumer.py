@@ -249,3 +249,32 @@ class OwnerTransactionBroadcastTests(TransactionTestCase):
         self.assertEqual(message['event'], 'stock_alert')
 
         await communicator.disconnect()
+
+    async def test_non_owner_receives_routine_stock_level_updates(self):
+        """The message a customer's search results actually track.
+
+        Unlike stock_alert this arrives on every sale, so if the consumer had
+        no handler for it the group_send would raise ValueError server-side and
+        the customer screen would simply never move -- which is exactly what
+        watching a demo with only alert handling looked like.
+        """
+        communicator = WebsocketCommunicator(application, self.url_for(self.outsider))
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        await get_channel_layer().group_send(
+            f'pharmacy_{self.pharmacy.id}',
+            {
+                'type': 'stock_level',
+                'data': {'event': 'stock_level', 'medicine_id': 1,
+                         'medicine_name': 'Paracetamol', 'quantity': 49,
+                         'low_threshold': 10},
+            },
+        )
+
+        message = await communicator.receive_json_from(timeout=2)
+        self.assertEqual(message['event'], 'stock_level')
+        self.assertEqual(message['quantity'], 49)
+        self.assertEqual(message['low_threshold'], 10)
+
+        await communicator.disconnect()

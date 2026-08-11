@@ -6,6 +6,7 @@ import '../services/gemini_prescription_service.dart';
 import '../services/launcher_service.dart';
 import '../services/location_service.dart';
 import '../services/pharmacy_service.dart';
+import '../services/display_preferences.dart';
 import '../services/stock_alert_service.dart';
 import '../state.dart';
 import '../widgets/location_notice.dart';
@@ -31,20 +32,24 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
   /// each asking the GPS separately.
   UserLocation? _location;
 
-  // Live stock alerts (sync/ pipeline): connected to whichever pharmacy is
-  // currently the top search result. Scope decision -- the app has no
-  // per-pharmacy detail screen yet, and opening one WebSocket per visible
-  // card would mean N connections per search. Watching just the nearest
-  // result is enough to demonstrate the pipeline end-to-end; revisit this
-  // once a pharmacy detail screen exists to watch whichever one the user
-  // is actually looking at.
-  final StockAlertService _alertService = StockAlertService();
-  StreamSubscription<StockAlert>? _alertSubscription;
-  int? _watchedPharmacyId;
+  // Live stock (sync/ pipeline): one socket per visible pharmacy, capped by
+  // LiveStockWatcher.maxConnections. This used to watch only _results.first,
+  // which meant a customer saw a sale only when the selling pharmacy happened
+  // to be their own nearest result -- on four phones in four spots, usually
+  // nobody. Watching the visible set is what makes "owner sells, every
+  // customer phone updates" actually hold.
+  final LiveStockWatcher _watcher = LiveStockWatcher();
+  StreamSubscription<PharmacyStockEvent<StockAlert>>? _alertSubscription;
+  StreamSubscription<PharmacyStockEvent<StockLevel>>? _levelSubscription;
 
   @override
   void initState() {
     super.initState();
+    // Subscribed once, up front: the watcher's merged streams outlive any
+    // individual socket, so re-subscribing per search (as the old single-socket
+    // code had to) would only create chances to leak or drop a subscription.
+    _alertSubscription = _watcher.alerts.listen(_onStockAlert);
+    _levelSubscription = _watcher.levels.listen(_onStockLevel);
     _searchController.addListener(() {
       AppStateManager.instance.pharmacySearchQueryNotifier.value = _searchController.text;
       _debounce?.cancel();
@@ -370,7 +375,7 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
         _error = null;
         _isLoading = false;
       });
-      _watchTopResultForLiveStock();
+      _watchResultsForLiveStock();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -386,59 +391,70 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
     }
   }
 
-  /// (Re)subscribes to the nearest result's stock-alert WebSocket. Safe to
-  /// call after every search -- does nothing if the top result is already
-  /// the one being watched, so a fresh search for the same area doesn't
-  /// needlessly reconnect.
-  Future<void> _watchTopResultForLiveStock() async {
-    if (_results.isEmpty) {
-      _alertSubscription?.cancel();
-      _alertService.disconnect();
-      _watchedPharmacyId = null;
-      return;
-    }
-
-    final topPharmacy = _results.first;
-    if (_watchedPharmacyId == topPharmacy.id) return; // already watching this one
-
-    _alertSubscription?.cancel();
-    _watchedPharmacyId = topPharmacy.id;
-    final stream = await _alertService.connect(topPharmacy.id);
-    if (!mounted) return;
-    // A second search can start while the connect above is in flight. That
-    // call moves _watchedPharmacyId on and reconnects the shared service,
-    // which closes the stream we are holding. Without this check the
-    // superseded call would resume and overwrite _alertSubscription with a
-    // subscription to that dead stream, orphaning the live one and silently
-    // ending stock updates. We never subscribe, so nothing is leaked.
-    if (_watchedPharmacyId != topPharmacy.id) return;
-    _alertSubscription = stream.listen(_onStockAlert);
+  /// Points the watcher at the pharmacies currently on screen. Safe to call
+  /// after every search -- LiveStockWatcher diffs against what it already has,
+  /// so a repeated search for the same area reconnects nothing.
+  void _watchResultsForLiveStock() {
+    _watcher.watch(_results.map((p) => p.id));
   }
 
-  void _onStockAlert(StockAlert alert) {
+  /// Applies a routine quantity push. No snackbar: these arrive on every sale
+  /// at every watched pharmacy, and eight sockets' worth of toasts would bury
+  /// the screen. The chip changing IS the notification.
+  void _onStockLevel(PharmacyStockEvent<StockLevel> update) {
     if (!mounted) return;
-
     setState(() {
-      // Update the matching medicine chip in place, if the watched
-      // pharmacy's card is showing that medicine -- so the UI reflects
-      // the new quantity without the user needing to re-search.
-      final index = _results.indexWhere((p) => p.id == _watchedPharmacyId);
-      if (index == -1) return;
-      final pharmacy = _results[index];
-      final itemIndex = pharmacy.items.indexWhere((i) => i['name'] == alert.medicineName);
-      if (itemIndex != -1) {
-        pharmacy.items[itemIndex]['inStock'] = alert.quantity > 0;
-      }
+      _applyToResults(
+        update.pharmacyId,
+        update.event.medicineName,
+        update.event.quantity,
+        lowThreshold: update.event.lowThreshold,
+      );
     });
+  }
+
+  void _onStockAlert(PharmacyStockEvent<StockAlert> update) {
+    if (!mounted) return;
+    final alert = update.event;
+
+    // The level push covering this same movement is sent first and has almost
+    // certainly already landed, but apply it here too: an alert is the one
+    // message we must not render against a stale number.
+    setState(() {
+      _applyToResults(update.pharmacyId, alert.medicineName, alert.quantity);
+    });
+
+    // Named from the pharmacy the message actually came from. This used to say
+    // `_results.first.name` while updating a different pharmacy's row, so after
+    // any re-search the toast credited the wrong shop.
+    final pharmacy = _results.where((p) => p.id == update.pharmacyId).firstOrNull;
+    if (pharmacy == null) return; // scrolled out of the result set; nothing to say
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           '${alert.level == 'critical' ? '⚠️ Critical' : 'Low stock'}: '
-          '${alert.medicineName} (${alert.quantity} left) at ${_results.first.name}',
+          '${alert.medicineName} (${alert.quantity} left) at ${pharmacy.name}',
         ),
         duration: const Duration(seconds: 4),
       ),
+    );
+  }
+
+  /// Writes [quantity] onto the matching medicine of the matching pharmacy.
+  /// Call inside setState.
+  void _applyToResults(
+    int pharmacyId,
+    String medicineName,
+    int quantity, {
+    int? lowThreshold,
+  }) {
+    final index = _results.indexWhere((p) => p.id == pharmacyId);
+    if (index == -1) return; // not on screen right now
+    _results[index].applyStockLevel(
+      medicineName,
+      quantity,
+      lowThreshold: lowThreshold,
     );
   }
 
@@ -446,7 +462,8 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
   void dispose() {
     _debounce?.cancel();
     _alertSubscription?.cancel();
-    _alertService.disconnect();
+    _levelSubscription?.cancel();
+    _watcher.dispose(); // closes every socket it opened
     _searchController.dispose();
     super.dispose();
   }
@@ -482,12 +499,31 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                         tooltip: 'Scan Prescription Photo',
                         onPressed: _openPrescriptionScanner,
                       ),
-                      IconButton(
-                        icon: Icon(
-                          Icons.tune,
-                          color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-                        ),
-                        onPressed: () {},
+                      // Chooses between the two ways of showing availability.
+                      // Lives here rather than in a settings screen because
+                      // the thing it changes is three centimetres below it,
+                      // and the choice is one people flip back and forth
+                      // depending on whether they want the exact count.
+                      ValueListenableBuilder<StockDisplayMode>(
+                        valueListenable: DisplayPreferences
+                            .instance.stockDisplayModeNotifier,
+                        builder: (context, mode, _) {
+                          final showsQuantity =
+                              mode == StockDisplayMode.quantity;
+                          return IconButton(
+                            icon: Icon(
+                              showsQuantity ? Icons.pin : Icons.check_circle_outline,
+                              color: isDark
+                                  ? const Color(0xFFAAC7FF)
+                                  : theme.colorScheme.primary,
+                            ),
+                            tooltip: showsQuantity
+                                ? 'Showing exact quantities — tap for in stock / out'
+                                : 'Showing in stock / out — tap for exact quantities',
+                            onPressed: DisplayPreferences
+                                .instance.toggleStockDisplayMode,
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -731,12 +767,23 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Stock indicators
-            Wrap(
+            // Stock indicators. Rebuilt on their own from the display-mode
+            // notifier so flipping the mode repaints the chips without
+            // re-running the search or rebuilding the map.
+            ValueListenableBuilder<StockDisplayMode>(
+              valueListenable:
+                  DisplayPreferences.instance.stockDisplayModeNotifier,
+              builder: (context, mode, _) => Wrap(
               spacing: 8,
               runSpacing: 8,
               children: pharmacy.items.map((item) {
                 final inStock = item['inStock'] as bool;
+                // Absent on results fetched by an older build still in memory,
+                // so fall back to the boolean rather than throwing mid-build.
+                final quantity = (item['quantity'] as num?)?.toInt();
+                final label = (mode == StockDisplayMode.quantity && quantity != null)
+                    ? (quantity > 0 ? '$quantity left' : 'Out')
+                    : (inStock ? 'In Stock' : 'Out');
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -760,7 +807,7 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        '${item['name']} (${inStock ? 'In Stock' : 'Out'})',
+                        '${item['name']} ($label)',
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
@@ -771,6 +818,7 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                   ),
                 );
               }).toList(),
+              ),
             ),
             const SizedBox(height: 16),
 

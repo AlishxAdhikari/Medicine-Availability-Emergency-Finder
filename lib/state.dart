@@ -110,7 +110,13 @@ class Pharmacy {
   final String distance;
   final String address;
   final bool isOpen;
-  final List<Map<String, dynamic>> items; // {'name': 'Insulin', 'inStock': true}
+  /// One entry per stocked medicine, shaped by PharmacyService._toPharmacy:
+  /// `{'name': 'Insulin', 'quantity': 12, 'lowThreshold': 5, 'inStock': true}`.
+  ///
+  /// Mutable maps on purpose: [applyStockLevel] rewrites entries in place when
+  /// a live `stock_level` push arrives, so the card updates without refetching
+  /// the whole search.
+  final List<Map<String, dynamic>> items;
   // Real coordinates straight off Pharmacy.latitude/longitude (non-null in the
   // Django model), used to place the map marker and to build the Directions
   // intent. Nullable here rather than required because these come from JSON
@@ -134,6 +140,41 @@ class Pharmacy {
   });
 
   bool get hasCoordinates => latitude != null && longitude != null;
+
+  /// Applies a live quantity for [medicineName], returning true when this
+  /// pharmacy actually stocks it (and so the caller should rebuild).
+  ///
+  /// Writes `quantity` and `inStock` together. They are two views of one fact,
+  /// and updating only the boolean is exactly the bug that made a sale from 50
+  /// to 49 invisible: the chip kept saying "In Stock" because the boolean had
+  /// not changed, while the number behind it had.
+  ///
+  /// [lowThreshold] is optional because only the `stock_level` push carries
+  /// one; a `stock_alert` does not, and leaving the previous threshold in
+  /// place is more accurate than overwriting it with a guess.
+  bool applyStockLevel(String medicineName, int quantity, {int? lowThreshold}) {
+    final index = items.indexWhere((i) => i['name'] == medicineName);
+    if (index == -1) return false;
+    items[index]['quantity'] = quantity;
+    items[index]['inStock'] = quantity > 0;
+    if (lowThreshold != null) items[index]['lowThreshold'] = lowThreshold;
+    return true;
+  }
+}
+
+/// How the search results render a medicine's availability.
+///
+/// Offered as a user choice rather than picked for them: the exact count is
+/// what makes a live sale visible ("12" ticking to "11" while you watch), but
+/// a customer deciding where to walk usually only cares whether the medicine
+/// is there at all, and some pharmacies would rather not publish their exact
+/// holdings on a stranger's screen.
+enum StockDisplayMode {
+  /// "Paracetamol (In Stock)" -- the original boolean chip.
+  availability,
+
+  /// "Paracetamol (12 left)" -- the exact committed quantity.
+  quantity,
 }
 
 class Ambulance {

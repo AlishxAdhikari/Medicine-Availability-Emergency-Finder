@@ -74,8 +74,16 @@ class PharmacyService {
       items = stock
           .cast<Map<String, dynamic>>()
           .take(6) // enough to show a few stock chips without cluttering the card
+          // `quantity` and `lowThreshold` are carried alongside `inStock`
+          // rather than replacing it, because the search screen can render
+          // either shape (see StockDisplayMode) and the map/filter code still
+          // asks the cheap boolean question. Both are kept in sync by
+          // applyStockLevel() in state.dart -- update them together or a live
+          // push will leave the chip's colour disagreeing with its number.
           .map((row) => {
                 'name': row['medicine']['name'],
+                'quantity': (row['quantity'] as num).toInt(),
+                'lowThreshold': (row['low_threshold'] as num?)?.toInt() ?? 0,
                 'inStock': (row['quantity'] as num) > 0,
               })
           .toList();

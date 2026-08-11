@@ -16,13 +16,17 @@ def check_threshold(sender, instance, created, **kwargs):
     if not created:
         return
 
-    # Set by apply_stock_change(alert=False) -- a ledger row the caller has
-    # already established is not worth waking clients for (a row being deleted,
-    # or a row being created by the owner who is looking at it). Read off the
-    # instance rather than from the DB because it is deliberately not a stored
-    # field: it describes this one write, not the transaction forever.
-    if getattr(instance, 'skip_low_stock_alert', False):
-        return
+    # Set by apply_stock_change(alert=False) -- a movement the caller has
+    # already established is not worth *warning* anyone about (a row being
+    # deleted, or a row being created by the owner who is looking at it). Read
+    # off the instance rather than from the DB because it is deliberately not a
+    # stored field: it describes this one write, not the transaction forever.
+    #
+    # Scope note: this suppresses the low-stock *alert* only. It used to
+    # `return` here and so silently suppressed the ledger push and the level
+    # push too, which contradicted broadcast_transaction's own docstring and
+    # meant an owner's opening quantity never reached any watching client.
+    skip_alert = bool(getattr(instance, 'skip_low_stock_alert', False))
 
     # post_save fires INSIDE the caller's atomic block, so at this moment the
     # quantity that would be broadcast is not yet committed and may never be.
@@ -35,8 +39,12 @@ def check_threshold(sender, instance, created, **kwargs):
     #
     # Outside a transaction, on_commit runs the callback immediately, so the
     # POS path behaves exactly as before.
+    #
+    # Order matters to one thing only: broadcast_stock_state sends the routine
+    # level update before any exceptional alert, so a client applying them in
+    # arrival order ends on the alert rather than overwriting it.
     transaction.on_commit(lambda: broadcast_transaction(instance))
-    transaction.on_commit(lambda: broadcast_if_low(instance))
+    transaction.on_commit(lambda: broadcast_stock_state(instance, alert=not skip_alert))
 
 
 def broadcast_transaction(txn):
@@ -83,14 +91,32 @@ def broadcast_transaction(txn):
     )
 
 
-def broadcast_if_low(txn):
+def broadcast_stock_state(txn, *, alert=True):
     """Reads the committed stock row for [txn]'s pharmacy/medicine pair and
-    pushes a stock_alert if it is at or below its threshold.
+    pushes its new level to every client watching this pharmacy -- plus a
+    stock_alert when that level is at or below its threshold.
+
+    Two messages rather than one because they answer different questions and
+    a client may want only one of them:
+
+      stock_level -- the routine fact "this medicine is now at N". Sent on
+                     EVERY committed movement. This is what makes a customer's
+                     search results track an owner's sale in real time; before
+                     it existed the public group carried alerts only, so a sale
+                     from 50 to 49 was invisible on every customer phone and
+                     live sync appeared broken for all but near-empty stock.
+      stock_alert -- the exceptional judgement "this is low enough to warn
+                     about", carrying a severity the client renders loudly.
+
+    Both go to the public `pharmacy_<id>` group, which is safe for the same
+    reason it always was: GET /pharmacies/<id>/stock/ already serves these
+    quantities to any signed-in user. Nothing here is owner-only -- that stays
+    in broadcast_transaction's `_owner` group.
 
     Split out of the receiver so the whole decision -- not just the send --
     happens after commit: reading the row from inside the transaction would
     reinstate exactly the uncommitted-quantity problem on_commit exists to
-    avoid.
+    avoid. One read serves both messages.
     """
     try:
         stock = PharmacyMedicineStock.objects.get(
@@ -98,20 +124,42 @@ def broadcast_if_low(txn):
         )
     except PharmacyMedicineStock.DoesNotExist:
         # The row is gone -- e.g. an owner removed the medicine between the
-        # write and the commit. Nothing to report a shortage about.
+        # write and the commit. There is no level to report and no shortage to
+        # warn about. This is also what makes the delete path quiet without
+        # needing skip_low_stock_alert to gate this function.
         return
 
-    if stock.quantity > stock.low_threshold:
-        return  # plenty of stock, nothing to alert about
-
     channel_layer = get_channel_layer()
+    group = f'pharmacy_{txn.pharmacy_id}'
+
     async_to_sync(channel_layer.group_send)(
-        f'pharmacy_{txn.pharmacy_id}',
+        group,
+        {
+            'type': 'stock_level',  # must match the method name in consumers.py
+            'data': {
+                'event': 'stock_level',
+                'medicine_id': txn.medicine_id,
+                'medicine_name': txn.medicine.name,
+                'quantity': stock.quantity,
+                # Sent alongside the quantity so a client can colour a chip
+                # "low" without having to fetch the threshold separately.
+                'low_threshold': stock.low_threshold,
+            },
+        },
+    )
+
+    if not alert:
+        return
+    if stock.quantity > stock.low_threshold:
+        return  # plenty of stock, nothing to warn about
+
+    async_to_sync(channel_layer.group_send)(
+        group,
         {
             'type': 'stock_alert',  # must match the method name in consumers.py
             'data': {
                 # Discriminator, so a client reading one socket can tell the
-                # two message kinds apart. Absent on messages sent by older
+                # message kinds apart. Absent on messages sent by older
                 # servers, which the client treats as a stock_alert.
                 'event': 'stock_alert',
                 'medicine_id': txn.medicine_id,

@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from pharmacy.models import Medicine, Pharmacy, PharmacyMedicineStock, PharmacyOwner
 from pharmacy.services import apply_stock_change
 from sync.models import StockTransaction
+from sync.testing import alert_events, level_events
 
 User = get_user_model()
 
@@ -278,7 +279,10 @@ class OwnerStockApiTests(TestCase):
                 f'/api/v1/my-pharmacy/stock/{self.stock.id}/', {'quantity': 3}, format='json',
             )
 
-        self.assertTrue(mocked.called, 'Low-stock alert did not fire on a manual edit')
+        self.assertEqual(
+            len(alert_events(mocked)), 1,
+            'Low-stock alert did not fire on a manual edit',
+        )
 
     # -- Fix round 1: price validation --------------------------------
 
@@ -482,7 +486,13 @@ class OwnerStockApiTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 204)
-        self.assertFalse(mocked.called, 'Deleting a medicine raised a shortage alert')
+        self.assertEqual(
+            alert_events(mocked), [],
+            'Deleting a medicine raised a shortage alert',
+        )
+        # Nor a level update: the row is gone by commit time, so there is no
+        # quantity to report and broadcast_stock_state bails before sending.
+        self.assertEqual(level_events(mocked), [])
         # The ledger entry is not what was suppressed -- only the broadcast.
         self.assertEqual(StockTransaction.objects.count(), 1)
 
@@ -504,7 +514,16 @@ class OwnerStockApiTests(TestCase):
             }, format='json')
 
         self.assertEqual(response.status_code, 201)
-        self.assertFalse(mocked.called, 'Adding a medicine raised a shortage alert')
+        self.assertEqual(
+            alert_events(mocked), [],
+            'Adding a medicine raised a shortage alert',
+        )
+        # The opening quantity IS still published, though -- suppressing the
+        # warning must not also hide the medicine from customers watching this
+        # pharmacy until they happen to re-search.
+        levels = level_events(mocked)
+        self.assertEqual(len(levels), 1)
+        self.assertEqual(levels[0][1]['data']['quantity'], 5)
 
     def test_a_later_edit_still_alerts_after_a_suppressed_create(self):
         """The suppression is per-write, not sticky: the row that was added
@@ -526,7 +545,10 @@ class OwnerStockApiTests(TestCase):
                 {'quantity': 2}, format='json',
             )
 
-        self.assertTrue(mocked.called, 'Low-stock alert stopped firing on real edits')
+        self.assertEqual(
+            len(alert_events(mocked)), 1,
+            'Low-stock alert stopped firing on real edits',
+        )
 
     def test_pos_writes_still_alert(self):
         """alert=False is opt-in per call. Nothing about these fixes may
@@ -542,7 +564,7 @@ class OwnerStockApiTests(TestCase):
                 source='POS_SYNC', transaction_type='DISPENSED',
             )
 
-        self.assertTrue(mocked.called)
+        self.assertEqual(len(alert_events(mocked)), 1)
 
     # -- Fix round 2: owner-settable low_threshold -----------------------
 
@@ -592,7 +614,10 @@ class OwnerStockApiTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(mocked.called, 'The alert was judged against the old threshold')
+        self.assertEqual(
+            len(alert_events(mocked)), 1,
+            'The alert was judged against the old threshold',
+        )
 
     def test_post_accepts_a_low_threshold(self):
         new_medicine = Medicine.objects.create(

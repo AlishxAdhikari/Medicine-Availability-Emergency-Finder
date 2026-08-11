@@ -24,11 +24,15 @@ class StockConsumer(AsyncWebsocketConsumer):
     """One WebSocket connection per pharmacy dashboard/Flutter client.
 
     Clients connect to ws://<host>/ws/stock/<pharmacy_id>/ and are pushed
-    JSON messages by sync/signals.py. Two kinds arrive, distinguished by an
+    JSON messages by sync/signals.py. Three kinds arrive, distinguished by an
     `event` key:
 
-      stock_alert       -- a medicine crossed its low_threshold. Public: any
-                           signed-in user watching this pharmacy gets it.
+      stock_level       -- a medicine's new quantity, on every movement.
+                           Public: any signed-in user watching this pharmacy
+                           gets it. This is the one customer search results
+                           track.
+      stock_alert       -- a medicine is at or below its low_threshold.
+                           Public, and exceptional rather than routine.
       stock_transaction -- every individual stock movement. Owner-only.
 
     No polling needed on the client side.
@@ -88,6 +92,10 @@ class StockConsumer(AsyncWebsocketConsumer):
     # Name must match the "type" key used in channel_layer.group_send() --
     # Channels converts "stock_alert" -> calls this method automatically.
     async def stock_alert(self, event):
+        await self.send(text_data=json.dumps(event['data']))
+
+    # Routine level updates, same public group as stock_alert.
+    async def stock_level(self, event):
         await self.send(text_data=json.dumps(event['data']))
 
     # Sent only to the owner group; see connect().
