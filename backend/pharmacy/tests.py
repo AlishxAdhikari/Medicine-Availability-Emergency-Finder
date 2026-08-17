@@ -4,11 +4,13 @@ The owner-facing write API is covered separately and thoroughly in
 tests_owner.py. This file covers what a logged-out user hits -- search,
 filtering and proximity sorting -- which had no tests at all.
 """
+from django.test.utils import CaptureQueriesContext
+from django.db import connection
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from .filters import MedicineFilter, PharmacyFilter
-from .models import Medicine, Pharmacy
+from .models import Medicine, Pharmacy, PharmacyMedicineStock
 from .services import haversine_km, sort_by_proximity
 
 
@@ -142,6 +144,92 @@ class PharmacyListProximityTests(APITestCase):
         response = self.client.get(self.url, {'lat': KATHMANDU[0]})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['count'], 2)
+
+
+class MedicineAvailabilityTests(APITestCase):
+    """Covers GET /api/v1/medicines/<id>/availability/ -- the single-query
+    "who stocks this medicine" endpoint that replaces the N+1 pattern of
+    listing pharmacies and then calling .../stock/ once per pharmacy."""
+
+    def setUp(self):
+        self.medicine = Medicine.objects.create(
+            name='Paracetamol', category='Analgesic', dosage_form='Tablet', strength='500mg',
+        )
+        self.other_medicine = Medicine.objects.create(
+            name='Ibuprofen', category='NSAID', dosage_form='Tablet', strength='400mg',
+        )
+        self.patan = make_pharmacy('Patan Pharmacy', *PATAN)
+        self.pokhara = make_pharmacy('Pokhara Pharmacy', *POKHARA, district='Kaski')
+        self.bhaktapur = make_pharmacy('Bhaktapur Pharmacy', *BHAKTAPUR)
+
+        PharmacyMedicineStock.objects.create(
+            pharmacy=self.patan, medicine=self.medicine, quantity=10, price=5,
+        )
+        PharmacyMedicineStock.objects.create(
+            pharmacy=self.pokhara, medicine=self.medicine, quantity=0, price=5,
+        )
+        # Stocks a different medicine only -- must not show up.
+        PharmacyMedicineStock.objects.create(
+            pharmacy=self.bhaktapur, medicine=self.other_medicine, quantity=20, price=8,
+        )
+
+        self.url = reverse('medicine-availability', args=[self.medicine.id])
+
+    def test_lists_only_pharmacies_that_stock_this_medicine(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        names = {row['pharmacy']['name'] for row in response.data}
+        self.assertEqual(names, {'Patan Pharmacy', 'Pokhara Pharmacy'})
+
+    def test_includes_quantity_and_price(self):
+        response = self.client.get(self.url)
+        row = next(r for r in response.data if r['pharmacy']['name'] == 'Patan Pharmacy')
+        self.assertEqual(row['quantity'], 10)
+        self.assertEqual(row['price'], '5.00')
+
+    def test_sorts_by_distance_when_coordinates_given(self):
+        response = self.client.get(self.url, {'lat': KATHMANDU[0], 'lng': KATHMANDU[1]})
+        self.assertEqual(response.status_code, 200)
+        names = [row['pharmacy']['name'] for row in response.data]
+        self.assertEqual(names[0], 'Patan Pharmacy')
+
+    def test_radius_filters_results(self):
+        response = self.client.get(
+            self.url, {'lat': KATHMANDU[0], 'lng': KATHMANDU[1], 'radius_km': 20},
+        )
+        self.assertEqual(response.status_code, 200)
+        names = [row['pharmacy']['name'] for row in response.data]
+        self.assertEqual(names, ['Patan Pharmacy'])
+
+    def test_non_numeric_lat_is_400_not_500(self):
+        response = self.client.get(self.url, {'lat': 'here', 'lng': '85.3'})
+        self.assertEqual(response.status_code, 400)
+
+    def test_unknown_medicine_is_404(self):
+        response = self.client.get(reverse('medicine-availability', args=[999999]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_query_count_does_not_grow_with_pharmacy_count(self):
+        """The whole point of this endpoint: one query for the stock rows
+        (joined to their pharmacy via select_related), not one query per
+        pharmacy. Confirmed by checking the count stays flat as the number
+        of stocking pharmacies grows, not by pinning an exact number that
+        would need updating every time an unrelated query is added."""
+        with CaptureQueriesContext(connection) as small:
+            self.client.get(self.url)
+        baseline = len(small.captured_queries)
+
+        # Add several more pharmacies stocking the same medicine.
+        for i in range(10):
+            pharmacy = make_pharmacy(f'Extra Pharmacy {i}', *PATAN)
+            PharmacyMedicineStock.objects.create(
+                pharmacy=pharmacy, medicine=self.medicine, quantity=5, price=5,
+            )
+
+        with CaptureQueriesContext(connection) as large:
+            self.client.get(self.url)
+
+        self.assertEqual(len(large.captured_queries), baseline)
 
 
 class PharmacyFilterTests(APITestCase):

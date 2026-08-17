@@ -29,6 +29,21 @@ class PharmacySerializer(serializers.ModelSerializer):
         return getattr(obj, 'distance_km', None)
 
 
+class MedicineAvailabilitySerializer(serializers.ModelSerializer):
+    """One pharmacy's stock row for a single medicine, with the pharmacy
+    nested in (including distance_km when the caller passed lat/lng).
+
+    Backs GET /api/v1/medicines/<id>/availability/ -- the single-query
+    replacement for "list pharmacies, then call .../stock/ once per
+    pharmacy to see who has this medicine" (N+1 for N pharmacies).
+    """
+    pharmacy = PharmacySerializer(read_only=True)
+
+    class Meta:
+        model = PharmacyMedicineStock
+        fields = ('id', 'pharmacy', 'quantity', 'price', 'low_threshold')
+
+
 class PharmacyMedicineStockSerializer(serializers.ModelSerializer):
     """Nested view of a stock row: medicine details inline rather than just
     an id, since the pharmacy-detail screen wants name/price/quantity

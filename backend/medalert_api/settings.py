@@ -202,6 +202,13 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.ScopedRateThrottle',
     ],
+    'DEFAULT_THROTTLE_RATES': {
+        'login': '20/min',
+        'register': '10/min',
+        'shared_profile': '30/min',
+        'pos_sync': '100/min',
+    },
+}
     # Only views that set throttle_scope are limited; everything else stays
     # unthrottled. The unauthenticated endpoints are the ones worth covering:
     # login and register are password-guessing surfaces, and the share endpoint
@@ -212,12 +219,7 @@ REST_FRAMEWORK = {
     # impractical, not to police normal use -- a demo where several people log
     # in and out on the same wifi (one NAT'd IP, so DRF sees them as one
     # client) must never hit a limit.
-    'DEFAULT_THROTTLE_RATES': {
-        'login': '20/min',
-        'register': '10/min',
-        'shared_profile': '30/min',
-    },
-}
+
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),

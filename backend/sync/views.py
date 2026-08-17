@@ -14,12 +14,27 @@ from .serializers import (
     StockSyncSerializer,
     get_medicine_by_barcode_or_name,
 )
+from .throttling import POSKeyRateThrottle
 
 
 class StockSyncView(APIView):
     """POST /api/v1/stock/sync/"""
     authentication_classes = [POSKeyAuthentication]
     permission_classes = []
+    # A leaked or brute-forced X-POS-API-Key would otherwise be able to hammer
+    # this endpoint at any rate DRF's other views allow -- unlike login/register/
+    # shared_profile (see medalert_api/settings.py), which were already scoped,
+    # this endpoint had no rate limit at all until now. The rate is generous
+    # (a real POS could legitimately fire several events per second during a
+    # busy checkout), not tight -- this is a ceiling against abuse, not a
+    # normal-traffic limiter.
+    #
+    # Uses a dedicated throttle class rather than just `throttle_scope`
+    # (which is what every other scoped view uses): the project-wide default
+    # throttle keys off request.user.is_authenticated, and POSKeyAuthentication
+    # sets request.user to a Pharmacy instance, not a Django User -- see
+    # POSKeyRateThrottle's docstring in sync/throttling.py.
+    throttle_classes = [POSKeyRateThrottle]
 
     def post(self, request):
         # Bug fix: the old check `not request.user or not hasattr(request.user, 'pk')`
