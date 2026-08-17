@@ -20,7 +20,7 @@
 - Role is derived via `hasattr(user, 'pharmacy_owner')`. Never add a stored `role` field.
 - Owner endpoints must re-scope their queryset to the owner's pharmacy on every request, so another pharmacy's row 404s rather than 403s.
 - Existing behavior in `sync/views.py` that must survive the Task 3 refactor: a delta driving stock below zero is clamped to 0, but the `StockTransaction` records the **requested** delta, and the response carries `note: 'Quantity was clamped to 0'`.
-- Do not touch `low_threshold` from the owner API. It is deliberately out of scope.
+-  - ~~Do not touch `low_threshold` from the owner API. It is deliberately out of scope.~~ Superseded: a later fix round put `low_threshold` back in scope for the owner API (see `pharmacy/serializers.py::OwnerStockSerializer` and `pharmacy/owner_views.py`, which both allow the owner to set it). This line is kept for history, not as current guidance.
 - Commit after each task.
 
 ## File Structure
