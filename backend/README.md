@@ -12,7 +12,7 @@ The Django REST Framework API that powers the MedAlert Nepal Flutter app: authen
 - **Filtering:** `django-filter`
 - **API docs:** `drf-spectacular` (OpenAPI 3 schema + Swagger UI)
 - **CORS:** `django-cors-headers`
-- **Database:** SQLite by default for local development; configurable via `DATABASE_URL` (`dj-database-url`) for PostgreSQL in production
+-  **Database:** PostgreSQL. Configured via discrete `DATABASE_NAME`/`DATABASE_USER`/`DATABASE_PASSWORD`/`DATABASE_HOST`/`DATABASE_PORT` env    vars (see `.env.example`), read through `python-decouple`. No SQLite fallback — `settings.py` hardcodes the `postgresql` engine.
 - **Test data:** `Faker`-driven management command
 
 ## Project Structure
@@ -197,7 +197,7 @@ Writes go through `apply_stock_change()` rather than plain field assignment, so 
 
 ## Notes on Proximity Search
 
-Distance calculations (`pharmacy/services.py`) use a plain-Python haversine formula applied after the queryset is fetched, since the development database is SQLite and has no PostGIS extension. This is adequate at the current target scale but should move to a PostGIS `ST_Distance` query if the dataset grows substantially — see the project report for the relevant non-functional requirement.
+Distance calculations (`pharmacy/services.py`) use a plain-Python haversine formula applied after the queryset is fetched, rather than a database-side query, since the project doesn't yet use the PostGIS extension. This is adequate at the current target scale but should move to a PostGIS `ST_Distance` query if the dataset grows substantially — see the project report for the relevant non-functional requirement.
 
 ## Real-Time Stock Sync
 
@@ -224,13 +224,14 @@ python manage.py test          # 84 tests
 
 The `sync` suite covers the consumer (group delivery, cross-pharmacy isolation, and rejection of absent/garbage/expired/deleted-user/deactivated-user tokens), the signal receiver (threshold boundaries, payload shape, rollback safety), and the ingestion endpoint (auth failures, unknown medicines, concurrency).
 
-**A note on `test_concurrent_requests_do_not_lose_updates`.** `apply_stock_change()` guards its read-modify-write with `select_for_update()`, which is a documented no-op on SQLite (Django's backend sets `has_select_for_update = False`). That test used to fail for exactly this reason. It passes now because `OPTIONS['transaction_mode'] = 'IMMEDIATE'` in `settings.py` makes every atomic block take SQLite's write lock up front, serialising the writers. **Do not remove `select_for_update()`** — it is what provides the same guarantee on PostgreSQL, which is the specified production database. The test is also a `TransactionTestCase` against a file-backed test database on purpose; the shared-cache in-memory default would fail it for reasons unrelated to the application.
+**A note on `test_concurrent_requests_do_not_lose_updates`.** `apply_stock_change()` guards its read-modify-write with `select_for_update()`, which takes a real row-level lock on PostgreSQL (the project's only supported database — see the `Database` bullet above) and serialises concurrent writers on the same stock row. **Do not remove `select_for_update()`** — this test is what would silently break if it were removed. It's a `TransactionTestCase` on purpose, since `select_for_update()` requires a real transaction to have any effect.
 
 ## Roadmap
 
 - [x] Real-time pharmacy stock synchronization via Django Channels (`sync/` app) — **done**
 - [ ] Swap the in-memory channel layer for Redis (`channels-redis`) so alerts survive multiple workers
-- [ ] PostgreSQL + PostGIS for production and large-scale proximity queries
+- - [x] PostgreSQL for production — **done**
+- [ ] PostGIS extension for database-side proximity queries at larger scale (still using the Python haversine fallback described above)
 - [ ] Push notifications for emergency/stock alerts
 - [ ] Real-time ambulance dispatch status — availability is currently approximated by the `is_24_hour` boolean, not a live status field (see the placeholder note in `lib/services/emergency_service.dart`)
 - [ ] Barcode lookup for `medicine_barcode_or_name`, which currently matches on name only
