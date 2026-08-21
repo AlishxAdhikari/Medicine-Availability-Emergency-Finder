@@ -4,6 +4,7 @@ import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/medical_profile_service.dart';
 import '../state.dart';
+import '../widgets/medalert_mark.dart';
 
 /// Picks the landing route from the `role` field on the login response
 /// (core/serializers.py's UserSerializer). Falls back to the user home when
@@ -29,6 +30,27 @@ void applyRoleFromUser(Map<String, dynamic> user) {
   );
 }
 
+/// Clips a container into the curved "hero" shape used behind the header:
+/// a flat top and sides with the bottom edge sweeping down into a shallow
+/// smile, so the brand-color panel reads as one continuous curved shape
+/// rather than a rectangle.
+class _HeaderCurveClipper extends CustomClipper<Path> {
+  const _HeaderCurveClipper();
+
+  @override
+  Path getClip(Size size) {
+    final path = Path()
+      ..lineTo(0, size.height - 56)
+      ..quadraticBezierTo(size.width * 0.5, size.height + 36, size.width, size.height - 56)
+      ..lineTo(size.width, 0)
+      ..close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -51,9 +73,6 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (success) {
-        // Clear first. A device with no snapshot -- or one whose snapshot is
-        // unreadable -- must not inherit whatever role the previous account on
-        // this device left in memory.
         AppStateManager.instance.clearOwnerRole();
 
         final snapshot = await BiometricService.instance.getUserSnapshot();
@@ -62,13 +81,6 @@ class _LoginScreenState extends State<LoginScreen> {
           applyOwnerRoleFromSnapshot(snapshot);
         }
 
-        // The snapshot only knows what was true at the last password login.
-        // Losing ownership since then self-corrects (the owner API answers 403
-        // and the dashboard demotes), but GAINING it does not: staff link the
-        // pharmacy in admin, and a fingerprint user would keep landing on the
-        // consumer home with no way to the dashboard until they happened to
-        // type a password again. Ask the server, and keep the snapshot's
-        // answer only if it can't be reached.
         try {
           applyRoleFromUser(await AuthService.instance.currentUser());
         } catch (_) {}
@@ -124,7 +136,6 @@ class _LoginScreenState extends State<LoginScreen> {
       final persistedName = [firstName, lastName].where((s) => s.isNotEmpty).join(' ');
       AppStateManager.instance.updateProfile(
         AppStateManager.instance.buildProfileFromAuth(
-          // keep your existing arguments here unchanged
           fullName: persistedName.isNotEmpty ? persistedName : null,
           email: user['email'] as String? ?? identifier,
           phoneNumber: null,
@@ -137,8 +148,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
       applyRoleFromUser(user);
 
-      // Re-snapshot after the role is set, so the biometric path restores it
-      // too -- otherwise a fingerprint login drops an owner on the user home.
       if (await BiometricService.instance.isEnabled) {
         final p = AppStateManager.instance.userProfileNotifier.value;
         await BiometricService.instance.saveUserSnapshot(profileToSnapshot(p));
@@ -169,357 +178,177 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final headerColor = isDark ? const Color(0xFF14335C) : theme.colorScheme.primary;
+    final scaffoldBg = theme.scaffoldBackgroundColor;
 
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: AppStateManager.instance.themeModeNotifier,
       builder: (context, themeMode, _) {
         return Scaffold(
-          appBar: AppBar(
-            backgroundColor: isDark ? const Color(0xFF191C20) : theme.colorScheme.surface.withValues(alpha: 0.8),
-            elevation: 0,
-            leadingWidth: 150,
-            leading: Padding(
-              padding: const EdgeInsets.only(left: 16),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.location_on,
-                      color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'MedAlert',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              IconButton(
-                icon: Icon(
-                  isDark ? Icons.light_mode : Icons.dark_mode,
-                  color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
-                ),
-                onPressed: () {
-                  AppStateManager.instance.toggleTheme();
-                },
-              ),
-              // Deliberately placed on the login screen rather than behind
-              // auth: a wrong backend host makes login itself fail, so
-              // settings must be reachable without logging in first.
-              IconButton(
-                tooltip: 'Server settings',
-                icon: Icon(
-                  Icons.dns_outlined,
-                  color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
-                ),
-                onPressed: () {
-                  Navigator.of(context).pushNamed('/settings');
-                },
-              ),
-              const SizedBox(width: 8),
-            ],
-          ),
+          backgroundColor: scaffoldBg,
           body: Stack(
             children: [
-              // Atmospheric Glows
               Positioned(
-                top: -100,
-                left: -100,
+                top: 220,
+                left: -70,
                 child: Container(
-                  width: 300,
-                  height: 300,
+                  width: 220,
+                  height: 220,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.08),
                     shape: BoxShape.circle,
+                    color: theme.colorScheme.primary.withValues(alpha: 0.06),
                   ),
                 ),
               ),
               Positioned(
-                bottom: -100,
-                right: -100,
+                bottom: -90,
+                right: -70,
                 child: Container(
-                  width: 250,
-                  height: 250,
+                  width: 260,
+                  height: 260,
                   decoration: BoxDecoration(
+                    shape: BoxShape.circle,
                     color: theme.colorScheme.tertiary.withValues(alpha: 0.05),
-                    shape: BoxShape.circle,
                   ),
                 ),
               ),
-              // Content
-              Center(
+
+              SafeArea(
+                bottom: false,
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 400),
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF191C20) : Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isDark
-                            ? const Color(0xFF44474E).withValues(alpha: 0.3)
-                            : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
-                          blurRadius: 20,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(24.0),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Branding / Header
-                          Center(
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 64,
-                                  height: 64,
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? const Color(0xFF282A2F)
-                                        : theme.colorScheme.primaryContainer.withValues(alpha: 0.2),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: isDark
-                                          ? Colors.transparent
-                                          : theme.colorScheme.primary.withValues(alpha: 0.2),
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.security,
-                                    size: 32,
-                                    color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Secure Access',
-                                  style: theme.textTheme.headlineMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: -0.5,
-                                    fontSize: 24,
-                                    color: theme.colorScheme.onSurface,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Enter your credentials to continue',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Curved brand-color hero
+                      ClipPath(
+                        clipper: const _HeaderCurveClipper(),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 96),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                headerColor,
+                                isDark ? const Color(0xFF0B2444) : theme.colorScheme.primaryContainer,
                               ],
                             ),
                           ),
-                          const SizedBox(height: 32),
-
-                          // Email/Phone Field
-                          TextFormField(
-                            controller: _identifierController,
-                            decoration: const InputDecoration(
-                              hintText: 'Email or Phone Number',
-                              prefixIcon: Icon(Icons.person),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter email or phone number';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Password Field
-                          TextFormField(
-                            controller: _passwordController,
-                            obscureText: _obscurePassword,
-                            decoration: InputDecoration(
-                              hintText: 'Password',
-                              prefixIcon: const Icon(Icons.lock),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _obscurePassword = !_obscurePassword;
-                                  });
-                                },
-                              ),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter password';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Forgot Password
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: () {},
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: Text(
-                                'Forgot Password?',
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: theme.colorScheme.primary,
-                                  fontWeight: FontWeight.w600,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned(
+                                top: -60,
+                                right: -40,
+                                child: Container(
+                                  width: 180,
+                                  height: 180,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white.withValues(alpha: 0.06),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Login Button
-                          ElevatedButton(
-                            onPressed: _isLoading ? null : _handleLogin,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-                              foregroundColor: isDark ? Colors.black : Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            child: _isLoading
-                                ? SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: isDark ? Colors.black : Colors.white,
-                                    ),
-                                  )
-                                : Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
+                              Column(
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
-                                      Text(
-                                        'Login to MedAlert',
-                                        style: theme.textTheme.labelLarge?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          color: isDark ? Colors.black : Colors.white,
-                                        ),
+                                      _HeaderIconButton(
+                                        icon: isDark ? Icons.light_mode : Icons.dark_mode,
+                                        onPressed: () => AppStateManager.instance.toggleTheme(),
                                       ),
                                       const SizedBox(width: 8),
-                                      Icon(
-                                        Icons.arrow_forward,
-                                        size: 18,
-                                        color: isDark ? Colors.black : Colors.white,
+                                      _HeaderIconButton(
+                                        icon: Icons.dns_outlined,
+                                        tooltip: 'Server settings',
+                                        onPressed: () => Navigator.of(context).pushNamed('/settings'),
                                       ),
                                     ],
                                   ),
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Divider
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Divider(
-                                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                child: Text(
-                                  'Or continue with',
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: theme.colorScheme.outline,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
+                                  const SizedBox(height: 8),
+                                  // Original mark (no image)
+                                  MedAlertMark(size: 60, holeColor: headerColor),
+                                  const SizedBox(height: 14),
+                                  const Text(
+                                    'MedAlert',
+                                    style: TextStyle(
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: -0.5,
+                                      color: Colors.white,
+                                    ),
                                   ),
-                                ),
-                              ),
-                              Expanded(
-                                child: Divider(
-                                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-                                ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'When It Matters, We\'re There.',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.white.withValues(alpha: 0.8),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          const SizedBox(height: 24),
+                        ),
+                      ),
 
-                          // Biometrics
-                          OutlinedButton(
-                            onPressed: _biometricLoading ? null : _handleBiometricLogin,
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(
-                                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                      // Full-bleed form content below the hero.
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              TextFormField(
+                                controller: _identifierController,
+                                decoration: const InputDecoration(
+                                  hintText: 'Email or Phone Number',
+                                  prefixIcon: Icon(Icons.person),
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Please enter email or phone number';
+                                  }
+                                  return null;
+                                },
                               ),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _biometricLoading
-                                    ? SizedBox(
-                                        height: 32,
-                                        width: 32,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
-                                        ),
-                                      )
-                                    : Icon(
-                                        Icons.fingerprint,
-                                        size: 32,
-                                        color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
-                                      ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Biometric Login',
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: isDark ? Colors.white70 : theme.colorScheme.secondary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 24),
+                              const SizedBox(height: 16),
 
-                          // Footer Link
-                          Center(
-                            child: Wrap(
-                              alignment: WrapAlignment.center,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 4,
-                              runSpacing: 4,
-                              children: [
-                                Text(
-                                  'New to MedAlert?',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
+                              TextFormField(
+                                controller: _passwordController,
+                                obscureText: _obscurePassword,
+                                decoration: InputDecoration(
+                                  hintText: 'Password',
+                                  prefixIcon: const Icon(Icons.lock),
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _obscurePassword = !_obscurePassword;
+                                      });
+                                    },
                                   ),
                                 ),
-                                TextButton(
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Please enter password';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 8),
+
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
                                   onPressed: () {
-                                    Navigator.pushNamed(context, '/create_account');
+                                    Navigator.pushNamed(context, '/forgot_password');
                                   },
                                   style: TextButton.styleFrom(
                                     padding: EdgeInsets.zero,
@@ -527,19 +356,159 @@ class _LoginScreenState extends State<LoginScreen> {
                                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                   ),
                                   child: Text(
-                                    'Create Account',
-                                    style: theme.textTheme.labelLarge?.copyWith(
+                                    'Forgot Password?',
+                                    style: theme.textTheme.labelMedium?.copyWith(
                                       color: theme.colorScheme.primary,
-                                      fontWeight: FontWeight.bold,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              ElevatedButton(
+                                onPressed: _isLoading ? null : _handleLogin,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
+                                  foregroundColor: isDark ? Colors.black : Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: _isLoading
+                                    ? SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: isDark ? Colors.black : Colors.white,
+                                        ),
+                                      )
+                                    : Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            'Login to MedAlert',
+                                            style: theme.textTheme.labelLarge?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                              color: isDark ? Colors.black : Colors.white,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Icon(
+                                            Icons.arrow_forward,
+                                            size: 18,
+                                            color: isDark ? Colors.black : Colors.white,
+                                          ),
+                                        ],
+                                      ),
+                              ),
+                              const SizedBox(height: 24),
+
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Divider(
+                                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                    child: Text(
+                                      'Or continue with',
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        color: theme.colorScheme.outline,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Divider(
+                                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 24),
+
+                              OutlinedButton(
+                                onPressed: _biometricLoading ? null : _handleBiometricLogin,
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _biometricLoading
+                                        ? SizedBox(
+                                            height: 32,
+                                            width: 32,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
+                                            ),
+                                          )
+                                        : Icon(
+                                            Icons.fingerprint,
+                                            size: 32,
+                                            color: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.secondary,
+                                          ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Biometric Login',
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        color: isDark ? Colors.white70 : theme.colorScheme.secondary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+
+                              Center(
+                                child: Wrap(
+                                  alignment: WrapAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 4,
+                                  runSpacing: 4,
+                                  children: [
+                                    Text(
+                                      'New to MedAlert?',
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: theme.colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: () {
+                                        Navigator.pushNamed(context, '/create_account');
+                                      },
+                                      style: TextButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        minimumSize: Size.zero,
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: Text(
+                                        'Create Account',
+                                        style: theme.textTheme.labelLarge?.copyWith(
+                                          color: theme.colorScheme.primary,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -548,5 +517,30 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       },
     );
+  }
+}
+
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({required this.icon, required this.onPressed, this.tooltip});
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = Material(
+      color: Colors.white.withValues(alpha: 0.14),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Icon(icon, size: 20, color: Colors.white),
+        ),
+      ),
+    );
+    return tooltip == null ? button : Tooltip(message: tooltip!, child: button);
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'theme.dart';
 import 'state.dart';
+import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/create_account_screen.dart';
 import 'screens/home_screen.dart';
@@ -39,9 +40,11 @@ class MedAlertApp extends StatelessWidget {
           theme: MedAlertTheme.lightTheme,
           darkTheme: MedAlertTheme.darkTheme,
           themeMode: themeMode,
-          initialRoute: '/',
+          initialRoute: '/splash',
           routes: {
+            '/splash': (context) => const SplashScreen(),
             '/': (context) => const LoginScreen(),
+            '/login': (context) => const LoginScreen(),
             '/create_account': (context) => const CreateAccountScreen(),
             '/home': (context) => const AppShell(),
             '/edit_medical_id': (context) => const EditMedicalIdScreen(),
