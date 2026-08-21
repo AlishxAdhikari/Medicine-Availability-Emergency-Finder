@@ -19,11 +19,6 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
   final GlobalKey _qrBoundaryKey = GlobalKey();
   bool _isDownloading = false;
 
-  /// Builds the plain-text payload encoded directly into the QR code.
-  ///
-  /// This is deliberately self-contained (not a link to a server) so a
-  /// first responder can read it from any QR scanner, offline, with no
-  /// dependency on the app or network access at the scene.
   String _buildEmergencyPayload(UserProfile profile) {
     final buffer = StringBuffer()
       ..writeln('MEDALERT EMERGENCY MEDICAL ID')
@@ -35,10 +30,13 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
 
     buffer
       ..writeln('Name: ${profile.fullName}')
-      ..writeln('Gender: ${profile.gender.isNotEmpty ? profile.gender : 'Not specified'}')
+      ..writeln(
+          'Gender: ${profile.gender.isNotEmpty ? profile.gender : 'Not specified'}')
       ..writeln('DOB: ${profile.dob}')
-      ..writeln('Phone: ${profile.phoneNumber.isNotEmpty ? profile.phoneNumber : 'Not specified'}')
-      ..writeln('Blood Group: ${profile.bloodGroup.isNotEmpty ? profile.bloodGroup : 'Not specified'}');
+      ..writeln(
+          'Phone: ${profile.phoneNumber.isNotEmpty ? profile.phoneNumber : 'Not specified'}')
+      ..writeln(
+          'Blood Group: ${profile.bloodGroup.isNotEmpty ? profile.bloodGroup : 'Not specified'}');
 
     if (profile.height.trim().isNotEmpty) {
       buffer.writeln('Height: ${profile.height} cm');
@@ -65,7 +63,8 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
       buffer.writeln('--------------------------------');
       buffer.writeln('Emergency Contacts:');
       for (final contact in profile.emergencyContacts) {
-        buffer.writeln('${contact.name} (${contact.relationship}) - ${contact.phoneNumber}');
+        buffer.writeln(
+            '${contact.name} (${contact.relationship}) - ${contact.phoneNumber}');
       }
     }
 
@@ -78,14 +77,12 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
     setState(() => _isDownloading = true);
 
     try {
-      final boundary =
-          _qrBoundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      final boundary = _qrBoundaryKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
       if (boundary == null) {
         throw Exception('QR code is not ready yet');
       }
 
-      // Render at a high pixel ratio so the downloaded image stays sharp
-      // and scannable even when zoomed in or printed.
       final image = await boundary.toImage(pixelRatio: 3.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) {
@@ -93,8 +90,6 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
       }
       final bytes = byteData.buffer.asUint8List();
 
-      // Built from in-memory bytes rather than a written file, so this
-      // works the same way on mobile, desktop, and web.
       final xFile = XFile.fromData(
         bytes,
         name: 'medalert_medical_id_qr.png',
@@ -117,418 +112,94 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
     }
   }
 
+  String _display(String value, [String fallback = 'Not set']) {
+    final t = value.trim();
+    return t.isEmpty ? fallback : t;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final state = AppStateManager.instance;
+    final bg = isDark ? const Color(0xFF111418) : const Color(0xFFF0F2F7);
 
-    return Scaffold(
-      body: ValueListenableBuilder<UserProfile>(
+    // No nested Scaffold — this screen is already inside AppShell's Scaffold.
+    // Using another Scaffold + SafeArea was eating space and hiding content.
+    return ColoredBox(
+      color: bg,
+      child: ValueListenableBuilder<UserProfile>(
         valueListenable: state.userProfileNotifier,
         builder: (context, profile, _) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Profile Header
-                Row(
-                  children: [
-                    Stack(
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
-                              width: 2,
-                            ),
-                          ),
-                          child: InitialsAvatar(
-                            name: profile.fullName,
-                            imageUrl: profile.profilePictureUrl,
-                            radius: 38,
-                          ),
-                        ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              color: isDark ? const Color(0xFFFFB68C) : theme.colorScheme.tertiary,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: isDark ? Colors.black : Colors.white,
-                                width: 2,
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.check,
-                              size: 12,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            profile.fullName,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${profile.gender} • ${profile.dob}',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.monitor_heart,
-                                  size: 14,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'ID: ${profile.medicalId}',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit),
-                      onPressed: () {
-                        Navigator.pushNamed(context, '/edit_medical_id');
-                      },
-                      style: IconButton.styleFrom(
-                        backgroundColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
-                        foregroundColor: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 720;
+              final hPad = isWide ? 28.0 : 14.0;
 
-                // Bento Grid
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    if (constraints.maxWidth > 650) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 5,
-                            child: _buildQRCard(context, profile),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            flex: 7,
-                            child: Column(
-                              children: [
-                                _buildVitalsGrid(context, profile),
-                                const SizedBox(height: 16),
-                                _buildAllergiesCard(context, profile.allergies),
-                                const SizedBox(height: 16),
-                                _buildMedicationsCard(context, profile.medications),
-                              ],
-                            ),
-                          ),
-                        ],
-                      );
-                    } else {
-                      return Column(
-                        children: [
-                          _buildQRCard(context, profile),
-                          const SizedBox(height: 16),
-                          _buildVitalsGrid(context, profile),
-                          const SizedBox(height: 16),
-                          _buildAllergiesCard(context, profile.allergies),
-                          const SizedBox(height: 16),
-                          _buildMedicationsCard(context, profile.medications),
-                        ],
-                      );
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Emergency Contacts
-                _buildEmergencyContactsCard(context, profile.emergencyContacts),
-                const SizedBox(height: 80), // bottom margin
-              ],
-            ),
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 100),
+                child: isWide
+                    ? _buildWideLayout(context, profile, isDark)
+                    : _buildPhoneLayout(context, profile, isDark),
+              );
+            },
           );
         },
       ),
     );
   }
 
-  Widget _buildQRCard(BuildContext context, UserProfile profile) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1D2024) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-        ),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-      ),
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        children: [
-          Text(
-            'Responder Scan',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Scan for instant access to critical medical history.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          RepaintBoundary(
-            key: _qrBoundaryKey,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-                ),
-              ),
-              child: QrImageView(
-                data: _buildEmergencyPayload(profile),
-                version: QrVersions.auto,
-                errorCorrectionLevel: QrErrorCorrectLevel.M,
-                size: 180,
-                backgroundColor: Colors.white,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Contains complete Medical ID profile: ID, vitals, severe allergies, medications & emergency contacts',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontStyle: FontStyle.italic,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: _isDownloading ? null : () => _downloadQrCode(profile),
-            icon: _isDownloading
-                ? SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: theme.colorScheme.primary,
-                    ),
-                  )
-                : const Icon(Icons.download),
-            label: Text(
-              _isDownloading ? 'Preparing...' : 'Download QR Code',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            ),
-          ),
-        ],
-      ),
+  Widget _buildPhoneLayout(
+      BuildContext context, UserProfile profile, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildIdCard(context, profile, isDark),
+        const SizedBox(height: 12),
+        _buildQuickStats(context, profile, isDark),
+        const SizedBox(height: 12),
+        _buildQRSection(context, profile, isDark),
+        const SizedBox(height: 12),
+        _buildAllergiesSection(context, profile.allergies, isDark),
+        const SizedBox(height: 12),
+        _buildMedicationsSection(context, profile.medications, isDark),
+        const SizedBox(height: 12),
+        _buildContactsSection(context, profile.emergencyContacts, isDark),
+        const SizedBox(height: 12),
+        _buildDetailsSection(context, profile, isDark),
+      ],
     );
   }
 
-  Widget _buildVitalsGrid(BuildContext context, UserProfile profile) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 3,
-      crossAxisSpacing: 12,
-      childAspectRatio: 0.9,
+  Widget _buildWideLayout(
+      BuildContext context, UserProfile profile, bool isDark) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Blood Group
-        Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFFFFDAD6).withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: const Color(0xFFBA1A1A).withValues(alpha: 0.2),
-            ),
-          ),
-          padding: const EdgeInsets.all(12),
+        Expanded(
+          flex: 5,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.water_drop, color: Color(0xFFBA1A1A), size: 18),
-                  SizedBox(width: 4),
-                  Text(
-                    'Blood Group',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFFBA1A1A),
-                    ),
-                  ),
-                ],
-              ),
-              Text(
-                profile.bloodGroup,
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFFBA1A1A),
-                  letterSpacing: -1,
-                ),
-              ),
+              _buildIdCard(context, profile, isDark),
+              const SizedBox(height: 14),
+              _buildQRSection(context, profile, isDark),
             ],
           ),
         ),
-        // Height
-        Container(
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1D2024) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-            ),
-          ),
-          padding: const EdgeInsets.all(12),
+        const SizedBox(width: 16),
+        Expanded(
+          flex: 6,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Icon(Icons.height, color: theme.colorScheme.secondary, size: 18),
-                  const SizedBox(width: 4),
-                  RichText(
-                    text: TextSpan(
-                      children: [
-                        TextSpan(
-                          text: profile.height,
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 22,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
-                        if (profile.height.isNotEmpty)
-                          TextSpan(
-                            text: ' cm',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              Text(
-                profile.height,
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 22,
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Weight
-        Container(
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1D2024) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-            ),
-          ),
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.scale, color: theme.colorScheme.secondary, size: 18),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Weight',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-              RichText(
-                text: TextSpan(
-                  children: [
-                    TextSpan(
-                      text: profile.weight,
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 22,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                    if (profile.weight.isNotEmpty)
-                      TextSpan(
-                        text: ' kg',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+              _buildQuickStats(context, profile, isDark),
+              const SizedBox(height: 14),
+              _buildAllergiesSection(context, profile.allergies, isDark),
+              const SizedBox(height: 14),
+              _buildMedicationsSection(context, profile.medications, isDark),
+              const SizedBox(height: 14),
+              _buildContactsSection(context, profile.emergencyContacts, isDark),
+              const SizedBox(height: 14),
+              _buildDetailsSection(context, profile, isDark),
             ],
           ),
         ),
@@ -536,59 +207,512 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
     );
   }
 
-  Widget _buildAllergiesCard(BuildContext context, List<String> allergies) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
+  Widget _buildIdCard(
+      BuildContext context, UserProfile profile, bool isDark) {
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1D2024) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF003D7A), Color(0xFF005AB4), Color(0xFF0A73E0)],
         ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF005AB4).withValues(alpha: 0.35),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.all(16.0),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -30,
+            top: -30,
+            child: Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.06),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 40,
+            bottom: -40,
+            child: Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.05),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 14, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'MEDALERT  ·  MEDICAL ID',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Material(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/edit_medical_id'),
+                        child: const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Icon(Icons.edit_outlined,
+                              color: Colors.white, size: 18),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(2.5),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.45),
+                          width: 2,
+                        ),
+                      ),
+                      child: InitialsAvatar(
+                        name: profile.fullName.isNotEmpty
+                            ? profile.fullName
+                            : 'U',
+                        imageUrl: profile.profilePictureUrl,
+                        radius: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            profile.fullName.isNotEmpty
+                                ? profile.fullName
+                                : 'Your Name',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.3,
+                              height: 1.2,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            () {
+                              final parts = <String>[];
+                              if (profile.gender.isNotEmpty) {
+                                parts.add(profile.gender);
+                              }
+                              if (profile.dob.isNotEmpty) {
+                                parts.add(profile.dob);
+                              }
+                              return parts.isEmpty
+                                  ? 'Complete your profile'
+                                  : parts.join('  ·  ');
+                            }(),
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.8),
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'MEDICAL ID',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.65),
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              profile.medicalId.isNotEmpty
+                                  ? profile.medicalId
+                                  : '—',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.3,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFBA1A1A),
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color:
+                                const Color(0xFFBA1A1A).withValues(alpha: 0.4),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            'BLOOD',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.8),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            profile.bloodGroup.isNotEmpty
+                                ? profile.bloodGroup
+                                : '—',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              height: 1.15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickStats(
+      BuildContext context, UserProfile profile, bool isDark) {
+    return Row(
+      children: [
+        Expanded(
+          child: _statChip(
+            context,
+            isDark,
+            icon: Icons.height_rounded,
+            label: 'Height',
+            value: profile.height.isNotEmpty ? '${profile.height} cm' : '—',
+            color: const Color(0xFF0A73E0),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _statChip(
+            context,
+            isDark,
+            icon: Icons.monitor_weight_outlined,
+            label: 'Weight',
+            value: profile.weight.isNotEmpty ? '${profile.weight} kg' : '—',
+            color: const Color(0xFF0D9B6B),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _statChip(
+            context,
+            isDark,
+            icon: Icons.phone_outlined,
+            label: 'Phone',
+            value: profile.phoneNumber.isNotEmpty
+                ? profile.phoneNumber
+                : '—',
+            color: const Color(0xFF7C4DFF),
+            smallValue: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _statChip(
+    BuildContext context,
+    bool isDark, {
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+    bool smallValue = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: _cardDeco(isDark),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white54 : Colors.black45,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: smallValue ? 11 : 14,
+              fontWeight: FontWeight.w800,
+              color: isDark ? Colors.white : Colors.black87,
+              height: 1.2,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQRSection(
+      BuildContext context, UserProfile profile, bool isDark) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: _cardDeco(isDark),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
           Row(
             children: [
-              const Icon(Icons.warning, color: Color(0xFFBA1A1A), size: 20),
-              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFBA1A1A).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.emergency, size: 12, color: Color(0xFFBA1A1A)),
+                    SizedBox(width: 4),
+                    Text(
+                      'EMERGENCY QR',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFBA1A1A),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
               Text(
-                'Severe Allergies',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
+                'Scan offline',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 14),
+          RepaintBoundary(
+            key: _qrBoundaryKey,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE5E9F0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: QrImageView(
+                data: _buildEmergencyPayload(profile),
+                version: QrVersions.auto,
+                errorCorrectionLevel: QrErrorCorrectLevel.M,
+                size: 160,
+                backgroundColor: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'ID · vitals · allergies · meds · contacts',
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.onSurfaceVariant,
+              fontStyle: FontStyle.italic,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 12),
-          if (allergies.isEmpty)
+          SizedBox(
+            width: double.infinity,
+            height: 42,
+            child: OutlinedButton.icon(
+              onPressed:
+                  _isDownloading ? null : () => _downloadQrCode(profile),
+              icon: _isDownloading
+                  ? SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: theme.colorScheme.primary,
+                      ),
+                    )
+                  : const Icon(Icons.download_rounded, size: 17),
+              label: Text(
+                _isDownloading ? 'Preparing…' : 'Download QR',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(11)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAllergiesSection(
+      BuildContext context, List<String> allergies, bool isDark) {
+    final theme = Theme.of(context);
+    final hasAllergies = allergies.isNotEmpty;
+
+    return Container(
+      decoration: _cardDeco(
+        isDark,
+        borderColor: hasAllergies
+            ? const Color(0xFFBA1A1A).withValues(alpha: 0.3)
+            : null,
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader(
+            Icons.warning_amber_rounded,
+            'Severe Allergies',
+            const Color(0xFFBA1A1A),
+            trailing: hasAllergies
+                ? Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFBA1A1A),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${allergies.length}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(height: 12),
+          if (!hasAllergies)
             Text(
-              'No known severe allergies.',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+              'No known severe allergies',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             )
           else
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: allergies.map((allergy) {
+              children: allergies.map((a) {
                 return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   decoration: BoxDecoration(
                     color: const Color(0xFFBA1A1A).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(99),
+                    borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: const Color(0xFFBA1A1A).withValues(alpha: 0.2),
+                      color: const Color(0xFFBA1A1A).withValues(alpha: 0.25),
                     ),
                   ),
                   child: Text(
-                    allergy,
+                    a,
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFFBA1A1A),
                     ),
                   ),
@@ -600,183 +724,195 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
     );
   }
 
-  Widget _buildMedicationsCard(BuildContext context, List<Medication> medications) {
+  Widget _buildMedicationsSection(
+      BuildContext context, List<Medication> medications, bool isDark) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1D2024) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      padding: const EdgeInsets.all(16.0),
+      decoration: _cardDeco(isDark),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.medication, color: theme.colorScheme.primary, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Current Medications',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+          _sectionHeader(
+            Icons.medication_outlined,
+            'Current Medications',
+            theme.colorScheme.primary,
+            trailing: medications.isNotEmpty
+                ? Text(
+                    '${medications.length}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  )
+                : null,
           ),
           const SizedBox(height: 12),
           if (medications.isEmpty)
             Text(
-              'No current medications.',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-            )
-          else
-            Column(
-              children: medications.map((med) {
-                return Container(
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
-                      ),
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            med.name,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            med.frequency,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        med.dosage,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmergencyContactsCard(BuildContext context, List<EmergencyContact> contacts) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1D2024) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.group, color: theme.colorScheme.primary, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Emergency Contacts',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+              'No current medications',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (contacts.isEmpty)
-            Text(
-              'No emergency contacts added.',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
             )
           else
-            Column(
-              children: contacts.map((contact) {
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF15181C) : const Color(0xFFF9F9FF),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
+            ...medications.asMap().entries.map((entry) {
+              final i = entry.key;
+              final med = entry.value;
+              return Column(
+                children: [
+                  if (i > 0)
+                    Divider(
+                      height: 16,
+                      color: theme.colorScheme.outlineVariant
+                          .withValues(alpha: 0.25),
                     ),
-                  ),
-                  child: Row(
+                  Row(
                     children: [
-                      if (contact.initials != null)
-                        CircleAvatar(
-                          radius: 24,
-                          backgroundColor: theme.colorScheme.secondaryContainer,
-                          child: Text(
-                            contact.initials!,
-                            style: TextStyle(
-                              color: theme.colorScheme.onSecondaryContainer,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        )
-                      else
-                        const CircleAvatar(
-                          radius: 24,
-                          backgroundColor: Colors.grey, // Default gray avatar
-                          child: Icon(Icons.person, color: Colors.white), // Default person icon
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary
+                              .withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                      const SizedBox(width: 12),
+                        child: Icon(Icons.medication,
+                            size: 18, color: theme.colorScheme.primary),
+                      ),
+                      const SizedBox(width: 11),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              contact.name,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
+                              med.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
                               ),
                             ),
-                            Text(
-                              contact.relationship,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
+                            if (med.frequency.isNotEmpty)
+                              Text(
+                                med.frequency,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.call),
-                        // Was a SnackBar reading "Calling <name>..." that never
-                        // dialled anything -- the exact theatre the emergency
-                        // screen was fixed out of. contact.phoneNumber was on
-                        // the model the whole time, just never used.
-                        onPressed: contact.phoneNumber.trim().isEmpty
+                      if (med.dosage.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary
+                                .withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                          child: Text(
+                            med.dosage,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContactsSection(
+      BuildContext context, List<EmergencyContact> contacts, bool isDark) {
+    final theme = Theme.of(context);
+
+    return Container(
+      decoration: _cardDeco(isDark),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader(
+            Icons.groups_outlined,
+            'Emergency Contacts',
+            theme.colorScheme.primary,
+          ),
+          const SizedBox(height: 12),
+          if (contacts.isEmpty)
+            Text(
+              'No emergency contacts added',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            )
+          else
+            ...contacts.map((contact) {
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF15181C)
+                      : const Color(0xFFF4F6FA),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: theme.colorScheme.primary
+                          .withValues(alpha: 0.12),
+                      child: contact.initials != null
+                          ? Text(
+                              contact.initials!,
+                              style: TextStyle(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12,
+                              ),
+                            )
+                          : Icon(Icons.person,
+                              color: theme.colorScheme.primary, size: 18),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            contact.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          Text(
+                            contact.relationship,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Material(
+                      color: const Color(0xFF0D9B6B).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: contact.phoneNumber.trim().isEmpty
                             ? null
                             : () => dialEmergencyNumber(
                                   context,
@@ -784,18 +920,147 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                                   subject:
                                       '${contact.name} (${contact.relationship})',
                                 ),
-                        style: IconButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primaryContainer,
-                          foregroundColor: theme.colorScheme.onPrimaryContainer,
+                        child: const Padding(
+                          padding: EdgeInsets.all(9),
+                          child: Icon(Icons.call_rounded,
+                              color: Color(0xFF0D9B6B), size: 18),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailsSection(
+      BuildContext context, UserProfile profile, bool isDark) {
+    final theme = Theme.of(context);
+    final rows = <(IconData, String, String)>[
+      (Icons.phone_outlined, 'Phone', _display(profile.phoneNumber)),
+      (Icons.cake_outlined, 'Date of Birth', _display(profile.dob)),
+      (Icons.person_outline, 'Gender', _display(profile.gender)),
+      (Icons.location_on_outlined, 'Address', _display(profile.address)),
+      (Icons.badge_outlined, 'Medical ID', _display(profile.medicalId)),
+      (
+        Icons.water_drop_outlined,
+        'Blood Group',
+        _display(profile.bloodGroup)
+      ),
+    ];
+
+    return Container(
+      decoration: _cardDeco(isDark),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader(
+            Icons.info_outline,
+            'Full Profile',
+            theme.colorScheme.primary,
+          ),
+          const SizedBox(height: 10),
+          ...rows.asMap().entries.map((entry) {
+            final i = entry.key;
+            final (icon, label, value) = entry.value;
+            return Column(
+              children: [
+                if (i > 0)
+                  Divider(
+                    height: 14,
+                    color: theme.colorScheme.outlineVariant
+                        .withValues(alpha: 0.2),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 16, color: theme.colorScheme.primary),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 100,
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          value,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.right,
                         ),
                       ),
                     ],
                   ),
-                );
-              }).toList(),
-            ),
+                ),
+              ],
+            );
+          }),
         ],
       ),
+    );
+  }
+
+  BoxDecoration _cardDeco(bool isDark, {Color? borderColor}) {
+    return BoxDecoration(
+      color: isDark ? const Color(0xFF1D2024) : Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: borderColor ??
+            (isDark
+                ? Colors.white.withValues(alpha: 0.06)
+                : const Color(0xFFE6EAF0)),
+      ),
+      boxShadow: isDark
+          ? null
+          : [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+    );
+  }
+
+  Widget _sectionHeader(IconData icon, String title, Color color,
+      {Widget? trailing}) {
+    return Row(
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 15, color: color),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 14.5,
+              letterSpacing: -0.2,
+            ),
+          ),
+        ),
+        if (trailing != null) trailing,
+      ],
     );
   }
 }
