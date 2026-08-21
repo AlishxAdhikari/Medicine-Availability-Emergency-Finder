@@ -1059,7 +1059,7 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
             ),
           ),
         ),
-        if (trailing != null) trailing,
+        ?trailing,
       ],
     );
   }
