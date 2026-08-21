@@ -490,9 +490,30 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
               child: TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Search pharmacies or meds...',
-                  prefixIcon: const Icon(Icons.search),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  hintText: 'Search pharmacies or medicines…',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 22),
+                  filled: true,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : const Color(0xFFE6EAF0),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                      width: 1.5,
+                    ),
+                  ),
                   suffixIcon: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -561,13 +582,24 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
           builder: (context, radius, _) {
             return Container(
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF282A2F).withValues(alpha: 0.3) : const Color(0xFFE6E8F1).withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(12),
+                color: isDark ? const Color(0xFF1D2024) : Colors.white,
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : const Color(0xFFE6EAF0),
                 ),
+                boxShadow: isDark
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
               ),
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -674,9 +706,10 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
       ],
     );
 
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+    return ColoredBox(
+      color: isDark ? const Color(0xFF111418) : const Color(0xFFF0F2F7),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
         child: isWide
             ? Row(
                 children: [
@@ -700,102 +733,130 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1D2024) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : const Color(0xFFE6EAF0),
         ),
-      ),
-      color: isDark ? const Color(0xFF1D2024) : Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        pharmacy.name,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${pharmacy.distance} away • ${pharmacy.address}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: pharmacy.isOpen
-                        ? const Color(0xFF00897B).withValues(alpha: 0.12)
-                        : theme.colorScheme.error.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: pharmacy.isOpen ? const Color(0xFF00897B) : theme.colorScheme.error,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        pharmacy.isOpen ? 'Open Now' : 'Closed',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: pharmacy.isOpen ? const Color(0xFF00897B) : theme.colorScheme.error,
-                        ),
-                      ),
-                    ],
-                  ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-
-            // Stock indicators. Rebuilt on their own from the display-mode
-            // notifier so flipping the mode repaints the chips without
-            // re-running the search or rebuilding the map.
-            ValueListenableBuilder<StockDisplayMode>(
-              valueListenable:
-                  DisplayPreferences.instance.stockDisplayModeNotifier,
-              builder: (context, mode, _) => Wrap(
-              spacing: 8,
-              runSpacing: 8,
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A73E0).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.local_pharmacy_rounded,
+                    color: Color(0xFF0A73E0), size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      pharmacy.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${pharmacy.distance} · ${pharmacy.address}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: pharmacy.isOpen
+                      ? const Color(0xFF00897B).withValues(alpha: 0.12)
+                      : theme.colorScheme.error.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: pharmacy.isOpen
+                            ? const Color(0xFF00897B)
+                            : theme.colorScheme.error,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      pharmacy.isOpen ? 'Open' : 'Closed',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: pharmacy.isOpen
+                            ? const Color(0xFF00897B)
+                            : theme.colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ValueListenableBuilder<StockDisplayMode>(
+            valueListenable:
+                DisplayPreferences.instance.stockDisplayModeNotifier,
+            builder: (context, mode, _) => Wrap(
+              spacing: 6,
+              runSpacing: 6,
               children: pharmacy.items.map((item) {
                 final inStock = item['inStock'] as bool;
-                // Absent on results fetched by an older build still in memory,
-                // so fall back to the boolean rather than throwing mid-build.
                 final quantity = (item['quantity'] as num?)?.toInt();
-                final label = (mode == StockDisplayMode.quantity && quantity != null)
-                    ? (quantity > 0 ? '$quantity left' : 'Out')
-                    : (inStock ? 'In Stock' : 'Out');
+                final label =
+                    (mode == StockDisplayMode.quantity && quantity != null)
+                        ? (quantity > 0 ? '$quantity left' : 'Out')
+                        : (inStock ? 'In Stock' : 'Out');
                 return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     color: inStock
                         ? const Color(0xFF00897B).withValues(alpha: 0.08)
                         : theme.colorScheme.error.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: inStock
                           ? const Color(0xFF00897B).withValues(alpha: 0.2)
@@ -807,67 +868,68 @@ class _PharmacySearchScreenState extends State<PharmacySearchScreen> {
                     children: [
                       Icon(
                         inStock ? Icons.check_circle : Icons.cancel,
-                        size: 14,
-                        color: inStock ? const Color(0xFF00897B) : theme.colorScheme.error,
+                        size: 13,
+                        color: inStock
+                            ? const Color(0xFF00897B)
+                            : theme.colorScheme.error,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         '${item['name']} ($label)',
-                        style: theme.textTheme.bodySmall?.copyWith(
+                        style: TextStyle(
                           fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: inStock ? const Color(0xFF00897B) : theme.colorScheme.error,
+                          fontWeight: FontWeight.w700,
+                          color: inStock
+                              ? const Color(0xFF00897B)
+                              : theme.colorScheme.error,
                         ),
                       ),
                     ],
                   ),
                 );
               }).toList(),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: pharmacy.hasCoordinates
+                      ? () => _openDirections(pharmacy)
+                      : null,
+                  icon: const Icon(Icons.directions_rounded, size: 16),
+                  label: const Text('Directions',
+                      style: TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w700)),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11)),
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-
-            // Actions Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    // Disabled rather than silently no-op when there is
-                    // nothing to navigate to -- a button that looks live and
-                    // does nothing is what this screen had before.
-                    onPressed: pharmacy.hasCoordinates
-                        ? () => _openDirections(pharmacy)
-                        : null,
-                    icon: const Icon(Icons.directions, size: 16),
-                    label: const Text('Directions', style: TextStyle(fontSize: 11)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      backgroundColor: isDark ? const Color(0xFF282A2F) : const Color(0xFFF1F3FC),
-                      foregroundColor: theme.colorScheme.primary,
-                    ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: pharmacy.phone.trim().isEmpty
+                      ? null
+                      : () => _callPharmacy(pharmacy),
+                  icon: const Icon(Icons.call_rounded, size: 16),
+                  label: const Text('Call',
+                      style: TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w700)),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    backgroundColor: const Color(0xFF0A73E0),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11)),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    // `phone` is blank=True on the model, so plenty of real
-                    // rows have nothing to dial.
-                    onPressed: pharmacy.phone.trim().isEmpty
-                        ? null
-                        : () => _callPharmacy(pharmacy),
-                    icon: const Icon(Icons.call, size: 16),
-                    label: const Text('Call', style: TextStyle(fontSize: 11)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      backgroundColor: isDark ? const Color(0xFF282A2F) : const Color(0xFFF1F3FC),
-                      foregroundColor: theme.colorScheme.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
