@@ -26,19 +26,43 @@ class SalesReportPdf {
     required String pharmacyName,
     required DateTime dayStart,
     required List<SaleRecord> sales,
+    // Always-populated numbers straight from the stock-transaction ledger
+    // (server-backed), used as the headline totals instead of the local
+    // completed-bills log, which is only written when a sale is checked out
+    // through this device's own POS tab and is often empty.
+    double stockRevenue = 0,
+    int stockUnitsDispensed = 0,
+    int stockDispenseEvents = 0,
+    List<MapEntry<String, double>> stockCashierRevenue = const [],
+    Map<String, int> stockCashierUnits = const {},
+    List<MapEntry<String, int>> stockTopMedicines = const [],
   }) async {
     final store = pharmacyName.isEmpty ? 'Pharmacy' : pharmacyName;
     final dateStr = _fmtDate(dayStart);
-    final totalRevenue = sales.fold<double>(0, (s, r) => s + r.total);
-    final totalUnits = sales.fold<int>(0, (s, r) => s + r.unitCount);
+
+    final billRevenue = sales.fold<double>(0, (s, r) => s + r.total);
+    final billUnits = sales.fold<int>(0, (s, r) => s + r.unitCount);
     final totalBills = sales.length;
+
+    // Prefer the stock ledger when it has data -- it reflects every sale
+    // regardless of which device or flow recorded it, whereas the local
+    // bill log only knows about sales completed on this device's POS tab.
+    final totalRevenue = stockRevenue > 0 ? stockRevenue : billRevenue;
+    final totalUnits = stockUnitsDispensed > 0 ? stockUnitsDispensed : billUnits;
 
     final byCashier = <String, double>{};
     final unitsByCashier = <String, int>{};
-    for (final s in sales) {
-      final who = s.cashier.isEmpty ? 'Owner / POS' : s.cashier;
-      byCashier[who] = (byCashier[who] ?? 0) + s.total;
-      unitsByCashier[who] = (unitsByCashier[who] ?? 0) + s.unitCount;
+    if (stockCashierRevenue.isNotEmpty) {
+      for (final e in stockCashierRevenue) {
+        byCashier[e.key] = e.value;
+        unitsByCashier[e.key] = stockCashierUnits[e.key] ?? 0;
+      }
+    } else {
+      for (final s in sales) {
+        final who = s.cashier.isEmpty ? 'Owner / POS' : s.cashier;
+        byCashier[who] = (byCashier[who] ?? 0) + s.total;
+        unitsByCashier[who] = (unitsByCashier[who] ?? 0) + s.unitCount;
+      }
     }
 
     final doc = pw.Document(
@@ -55,9 +79,10 @@ class SalesReportPdf {
         build: (ctx) => [
           pw.SizedBox(height: 12),
           _summaryBox([
-            ('Bills', '$totalBills'),
             ('Units sold', '$totalUnits'),
             ('Total revenue', 'Rs ${totalRevenue.toStringAsFixed(2)}'),
+            ('Stock dispense events', '$stockDispenseEvents'),
+            ('Logged bills (with customer)', '$totalBills'),
             ('Date', dateStr),
           ]),
           pw.SizedBox(height: 16),
@@ -75,6 +100,19 @@ class SalesReportPdf {
                         '${unitsByCashier[e.key] ?? 0}',
                         e.value.toStringAsFixed(2),
                       ])
+                  .toList(),
+            ),
+          pw.SizedBox(height: 16),
+          _sectionTitle('Medicines dispensed today'),
+          if (stockTopMedicines.isEmpty)
+            pw.Text('No dispense activity recorded for this day.',
+                style: const pw.TextStyle(fontSize: 10))
+          else
+            _table(
+              headers: ['Medicine', 'Units dispensed'],
+              rows: stockTopMedicines
+                  .take(20)
+                  .map((e) => [e.key, '${e.value}'])
                   .toList(),
             ),
           pw.SizedBox(height: 18),
@@ -98,10 +136,21 @@ class SalesReportPdf {
     required String pharmacyName,
     required List<SaleRecord> sales,
     required DateTime generatedAt,
+    // Always-populated numbers from the stock-transaction ledger, used in
+    // place of the local completed-bills log wherever that log is empty.
+    // See shareDayReport for why: the log only knows about sales checked
+    // out through this device's own POS tab.
+    double stockRevenue = 0,
+    int stockUnits = 0,
+    List<MapEntry<String, double>> stockCashierRevenue = const [],
+    List<MapEntry<String, int>> stockTopMedicines = const [],
+    Map<String, double> stockMedicineRevenue = const {},
   }) async {
     final store = pharmacyName.isEmpty ? 'Pharmacy' : pharmacyName;
-    final totalRevenue = sales.fold<double>(0, (s, r) => s + r.total);
-    final totalUnits = sales.fold<int>(0, (s, r) => s + r.unitCount);
+    final billRevenue = sales.fold<double>(0, (s, r) => s + r.total);
+    final billUnits = sales.fold<int>(0, (s, r) => s + r.unitCount);
+    final totalRevenue = stockRevenue > 0 ? stockRevenue : billRevenue;
+    final totalUnits = stockUnits > 0 ? stockUnits : billUnits;
 
     final byMed = <String, int>{};
     final revByMed = <String, double>{};
@@ -112,16 +161,20 @@ class SalesReportPdf {
             (revByMed[l.medicineName] ?? 0) + l.lineTotal;
       }
     }
-    final topMeds = byMed.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final topMeds = stockTopMedicines.isNotEmpty
+        ? stockTopMedicines
+        : (byMed.entries.toList()..sort((a, b) => b.value.compareTo(a.value)));
+    final medRevenueLookup =
+        stockTopMedicines.isNotEmpty ? stockMedicineRevenue : revByMed;
 
     final byCashier = <String, double>{};
     for (final s in sales) {
       final who = s.cashier.isEmpty ? 'Owner / POS' : s.cashier;
       byCashier[who] = (byCashier[who] ?? 0) + s.total;
     }
-    final cashierRank = byCashier.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final cashierRank = stockCashierRevenue.isNotEmpty
+        ? stockCashierRevenue
+        : (byCashier.entries.toList()..sort((a, b) => b.value.compareTo(a.value)));
 
     final byCustomer = <String, double>{};
     for (final s in sales) {
@@ -149,9 +202,9 @@ class SalesReportPdf {
         build: (ctx) => [
           pw.SizedBox(height: 12),
           _summaryBox([
-            ('Total bills', '${sales.length}'),
             ('Units sold', '$totalUnits'),
             ('Total revenue', 'Rs ${totalRevenue.toStringAsFixed(2)}'),
+            ('Logged bills (with customer)', '${sales.length}'),
             ('Generated', _fmtDate(generatedAt)),
           ]),
           pw.SizedBox(height: 16),
@@ -185,7 +238,7 @@ class SalesReportPdf {
                   .map((e) => [
                         e.key,
                         '${e.value}',
-                        (revByMed[e.key] ?? 0).toStringAsFixed(2),
+                        (medRevenueLookup[e.key] ?? 0).toStringAsFixed(2),
                       ])
                   .toList(),
             ),
@@ -203,7 +256,11 @@ class SalesReportPdf {
             ),
           pw.SizedBox(height: 16),
           _sectionTitle('Recent bills'),
-          ...sales.take(20).map(_saleBlock),
+          if (sales.isEmpty)
+            pw.Text('No completed bills logged on this device yet.',
+                style: const pw.TextStyle(fontSize: 10))
+          else
+            ...sales.take(20).map(_saleBlock),
         ],
       ),
     );

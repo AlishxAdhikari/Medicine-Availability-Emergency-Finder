@@ -245,6 +245,13 @@ class AppStateManager {
   final ValueNotifier<int?> ownedPharmacyIdNotifier = ValueNotifier<int?>(null);
   final ValueNotifier<String> ownedPharmacyNameNotifier = ValueNotifier<String>('');
 
+  /// The account's login username (core/serializers.py's UserSerializer
+  /// always includes this, unlike first_name/last_name which are often
+  /// blank for accounts created without a display name). Used as a
+  /// last-resort display name anywhere the UI would otherwise fall back to
+  /// a generic label like "Owner".
+  final ValueNotifier<String> usernameNotifier = ValueNotifier<String>('');
+
   // Current Language Code ('en' or 'ne')
   final ValueNotifier<String> languageNotifier = ValueNotifier<String>('en');
 
@@ -355,6 +362,10 @@ class AppStateManager {
   /// pharmacy can't leak into the next session on a shared device.
   void clearOwnerRole() {
     setOwnerRole(isOwner: false);
+  }
+
+  void setUsername(String username) {
+    usernameNotifier.value = username;
   }
 
   void toggleLanguage() {

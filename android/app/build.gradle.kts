@@ -6,7 +6,9 @@ plugins {
 
 android {
     namespace = "com.medalert.medalert"
-    compileSdk = flutter.compileSdkVersion
+
+    // Updated from Flutter's default compileSdk to Android API 36
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -15,20 +17,21 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.medalert.medalert"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+
+        // Keep Flutter's minimum supported SDK
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+
+        // Updated to Android API 36
+        targetSdk = 36
+
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Signing with debug keys for now
             signingConfig = signingConfigs.getByName("debug")
         }
     }

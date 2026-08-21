@@ -27,6 +27,10 @@ void applyRoleFromUser(Map<String, dynamic> user) {
     pharmacyId: (pharmacy?['id'] as num?)?.toInt(),
     pharmacyName: pharmacy?['name'] as String? ?? '',
   );
+  final username = (user['username'] as String? ?? '').trim();
+  if (username.isNotEmpty) {
+    AppStateManager.instance.setUsername(username);
+  }
 }
 
 class LoginScreen extends StatefulWidget {
