@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../widgets/medalert_mark.dart';
 
@@ -13,6 +15,7 @@ class _SplashScreenState extends State<SplashScreen>
   late final AnimationController _controller;
   late final Animation<double> _fade;
   late final Animation<double> _scale;
+  Timer? _navigationTimer;
 
   @override
   void initState() {
@@ -26,7 +29,8 @@ class _SplashScreenState extends State<SplashScreen>
       CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
     );
     _controller.forward();
-    Future.delayed(const Duration(milliseconds: 1600), _goLogin);
+    _navigationTimer =
+        Timer(const Duration(milliseconds: 1600), _goLogin);
   }
 
   void _goLogin() {
@@ -36,6 +40,10 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
+    // Without this the pending navigation timer outlives the widget: it keeps
+    // the state object alive and trips the "timer still pending" assertion in
+    // widget tests.
+    _navigationTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
