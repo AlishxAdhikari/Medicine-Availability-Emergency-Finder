@@ -309,455 +309,448 @@ class _AppShellState extends State<AppShell> {
 class HomeDashboardTab extends StatelessWidget {
   const HomeDashboardTab({super.key});
 
+  String _greeting() {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final state = AppStateManager.instance;
+    final bg = isDark ? const Color(0xFF111418) : const Color(0xFFF0F2F7);
 
-    return SingleChildScrollView(
-      // Bottom inset clears the shell's SOS button, which would otherwise
-      // sit on top of the last card at the end of the scroll.
-      padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 88.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Welcome Section
-          ValueListenableBuilder<UserProfile>(
-            valueListenable: state.userProfileNotifier,
-            builder: (context, profile, _) {
-              return Container(
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1D2024) : const Color(0xFFF1F3FC),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-                  ),
-                ),
-                padding: const EdgeInsets.all(20.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Good morning,',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Hello, ${profile.fullName.split(' ').first}',
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
+    return ColoredBox(
+      color: bg,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 88),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Welcome hero ──
+            ValueListenableBuilder<UserProfile>(
+              valueListenable: state.userProfileNotifier,
+              builder: (context, profile, _) {
+                final first = profile.fullName.trim().isEmpty
+                    ? 'there'
+                    : profile.fullName.trim().split(' ').first;
+                return Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF003D7A),
+                        Color(0xFF005AB4),
+                        Color(0xFF0A73E0),
                       ],
                     ),
-                    Container(
-                      width: 56,
-                      height: 56,
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isDark
-                              ? const Color(0xFFAAC7FF)
-                              : theme.colorScheme.primaryContainer,
-                          width: 2,
-                        ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF005AB4).withValues(alpha: 0.28),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
                       ),
-                      child: InitialsAvatar(
-                        name: profile.fullName,
-                        imageUrl: profile.profilePictureUrl,
-                        radius: 26,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-
-          // Quick Actions Bento Grid
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                child: Text(
-                  'Quick Actions',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                    ],
                   ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                childAspectRatio: 1.4,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                children: [
-                  _buildQuickActionCard(
-                    context,
-                    icon: Icons.local_pharmacy,
-                    label: 'Pharmacy Search',
-                    color: isDark
-                        ? const Color(0xFF282A2F)
-                        : Colors.white,
-                    iconColor: isDark
-                        ? const Color(0xFFAAC7FF)
-                        : theme.colorScheme.primary,
-                    onTap: () {
-                      final shell = context.findAncestorStateOfType<_AppShellState>();
-                      shell?.navigateToTab(1);
-                    },
-                  ),
-                  _buildQuickActionCard(
-                    context,
-                    icon: Icons.emergency,
-                    label: 'Emergency Services',
-                    color: const Color(0xFFFFDAD6).withValues(alpha: 0.3),
-                    iconColor: const Color(0xFFBA1A1A),
-                    borderColor: const Color(0xFFBA1A1A).withValues(alpha: 0.3),
-                    onTap: () {
-                      final shell = context.findAncestorStateOfType<_AppShellState>();
-                      shell?.navigateToTab(2);
-                    },
-                  ),
-                  _buildQuickActionCard(
-                    context,
-                    icon: Icons.badge,
-                    label: 'Medical ID',
-                    color: isDark
-                        ? const Color(0xFF282A2F)
-                        : Colors.white,
-                    iconColor: isDark
-                        ? const Color(0xFFAAC7FF)
-                        : theme.colorScheme.primary,
-                    onTap: () {
-                      final shell = context.findAncestorStateOfType<_AppShellState>();
-                      shell?.navigateToTab(3);
-                    },
-                  ),
-                  _buildQuickActionCard(
-                    context,
-                    icon: Icons.bloodtype,
-                    label: 'Blood Bank',
-                    color: isDark
-                        ? const Color(0xFF282A2F)
-                        : Colors.white,
-                    iconColor: isDark
-                        ? const Color(0xFFFFB68C)
-                        : theme.colorScheme.tertiary,
-                    onTap: () {
-                      final shell = context.findAncestorStateOfType<_AppShellState>();
-                      shell?.navigateToTab(2); // Goes to emergency (which contains blood banks)
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          // Nearby Blood Banks
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Nearby Blood Banks',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Row(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 16, 18),
+                  child: Row(
                     children: [
-                      TextButton.icon(
-                        onPressed: () {
-                          final shell = context.findAncestorStateOfType<_AppShellState>();
-                          state.isBloodBankMapViewNotifier.value = true;
-                          shell?.navigateToTab(2);
-                        },
-                        icon: const Icon(Icons.map, size: 16),
-                        label: const Text('View on Map', style: TextStyle(fontSize: 12)),
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _greeting(),
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.75),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              first,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.4,
+                                height: 1.15,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                profile.bloodGroup.isNotEmpty
+                                    ? 'Blood · ${profile.bloodGroup}'
+                                    : 'Your health dashboard',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      TextButton(
-                        onPressed: () {
-                          final shell = context.findAncestorStateOfType<_AppShellState>();
-                          state.isBloodBankMapViewNotifier.value = false;
-                          shell?.navigateToTab(2);
-                        },
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      Container(
+                        padding: const EdgeInsets.all(2.5),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.4),
+                            width: 2,
+                          ),
                         ),
-                        child: const Text('View All', style: TextStyle(fontSize: 12)),
+                        child: InitialsAvatar(
+                          name: profile.fullName.isNotEmpty
+                              ? profile.fullName
+                              : 'U',
+                          imageUrl: profile.profilePictureUrl,
+                          radius: 28,
+                        ),
                       ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 18),
+
+            // ── Quick actions ──
+            _sectionLabel(context, 'Quick Actions'),
+            const SizedBox(height: 10),
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              childAspectRatio: 1.35,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              children: [
+                _actionTile(
+                  context,
+                  icon: Icons.local_pharmacy_rounded,
+                  label: 'Pharmacy\nSearch',
+                  accent: const Color(0xFF0A73E0),
+                  onTap: () {
+                    context
+                        .findAncestorStateOfType<_AppShellState>()
+                        ?.navigateToTab(1);
+                  },
+                ),
+                _actionTile(
+                  context,
+                  icon: Icons.emergency_rounded,
+                  label: 'Emergency\nServices',
+                  accent: const Color(0xFFBA1A1A),
+                  softBg: true,
+                  onTap: () {
+                    context
+                        .findAncestorStateOfType<_AppShellState>()
+                        ?.navigateToTab(2);
+                  },
+                ),
+                _actionTile(
+                  context,
+                  icon: Icons.badge_rounded,
+                  label: 'Medical\nID',
+                  accent: const Color(0xFF0A73E0),
+                  onTap: () {
+                    context
+                        .findAncestorStateOfType<_AppShellState>()
+                        ?.navigateToTab(3);
+                  },
+                ),
+                _actionTile(
+                  context,
+                  icon: Icons.bloodtype_rounded,
+                  label: 'Blood\nBank',
+                  accent: const Color(0xFFB45309),
+                  onTap: () {
+                    context
+                        .findAncestorStateOfType<_AppShellState>()
+                        ?.navigateToTab(2);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+
+            // ── Nearby blood banks ──
+            Row(
+              children: [
+                Expanded(child: _sectionLabel(context, 'Nearby Blood Banks')),
+                TextButton(
+                  onPressed: () {
+                    state.isBloodBankMapViewNotifier.value = true;
+                    context
+                        .findAncestorStateOfType<_AppShellState>()
+                        ?.navigateToTab(2);
+                  },
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text('Map', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    state.isBloodBankMapViewNotifier.value = false;
+                    context
+                        .findAncestorStateOfType<_AppShellState>()
+                        ?.navigateToTab(2);
+                  },
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text('View all', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 168,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  _bloodPreviewCard(
+                    context,
+                    name: 'Central Blood Bank',
+                    distance: '1.2 miles',
+                    availability: const [
+                      ('O+', 'Available', Color(0xFF00897B)),
+                      ('A-', 'Critical', Color(0xFFBA1A1A)),
+                    ],
+                  ),
+                  const SizedBox(width: 10),
+                  _bloodPreviewCard(
+                    context,
+                    name: 'Red Cross Center',
+                    distance: '3.5 miles',
+                    availability: const [
+                      ('B+', 'Low Stock', Color(0xFFB47A00)),
+                      ('AB+', 'Available', Color(0xFF00897B)),
+                    ],
+                  ),
+                  const SizedBox(width: 10),
+                  _bloodPreviewCard(
+                    context,
+                    name: 'City General Hospital',
+                    distance: '5.0 miles',
+                    availability: const [
+                      ('O-', 'Critical', Color(0xFFBA1A1A)),
+                      ('A+', 'Low Stock', Color(0xFFB47A00)),
                     ],
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 160,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(BuildContext context, String title) {
+    return Text(
+      title,
+      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.2,
+          ),
+    );
+  }
+
+  Widget _actionTile(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color accent,
+    required VoidCallback onTap,
+    bool softBg = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: softBg
+                ? const Color(0xFFBA1A1A).withValues(alpha: isDark ? 0.14 : 0.07)
+                : (isDark ? const Color(0xFF1D2024) : Colors.white),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: softBg
+                  ? const Color(0xFFBA1A1A).withValues(alpha: 0.22)
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : const Color(0xFFE6EAF0)),
+            ),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(icon, color: accent, size: 20),
+              ),
+              const Spacer(),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  height: 1.2,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _bloodPreviewCard(
+    BuildContext context, {
+    required String name,
+    required String distance,
+    required List<(String, String, Color)> availability,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Container(
+      width: 260,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1D2024) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : const Color(0xFFE6EAF0),
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFBA1A1A).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(Icons.bloodtype_rounded,
+                    size: 16, color: Color(0xFFBA1A1A)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildBloodBankCard(
-                      context,
-                      name: 'Central Blood Bank',
-                      distance: '1.2 miles away',
-                      availability: [
-                        {'type': 'O+', 'status': 'Available', 'color': const Color(0xFF008800)},
-                        {'type': 'A-', 'status': 'Critical', 'color': const Color(0xFFBA1A1A)},
-                      ],
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 13.5),
                     ),
-                    const SizedBox(width: 12),
-                    _buildBloodBankCard(
-                      context,
-                      name: 'Red Cross Center',
-                      distance: '3.5 miles away',
-                      availability: [
-                        {'type': 'B+', 'status': 'Low Stock', 'color': const Color(0xFFB47A00)},
-                        {'type': 'AB+', 'status': 'Available', 'color': const Color(0xFF008800)},
-                      ],
-                    ),
-                    const SizedBox(width: 12),
-                    _buildBloodBankCard(
-                      context,
-                      name: 'City General Hospital',
-                      distance: '5.0 miles away',
-                      availability: [
-                        {'type': 'O-', 'status': 'Critical', 'color': const Color(0xFFBA1A1A)},
-                        {'type': 'A+', 'status': 'Low Stock', 'color': const Color(0xFFB47A00)},
-                      ],
+                    Text(
+                      distance,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: Row(
+              children: availability.map((item) {
+                final (type, status, color) = item;
+                return Expanded(
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 6),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: color.withValues(alpha: 0.2)),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          type,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          status,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
           ),
         ],
       ),
     );
   }
-
-  Widget _buildQuickActionCard(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required Color color,
-    required Color iconColor,
-    Color? borderColor,
-    required VoidCallback onTap,
-  }) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: borderColor ??
-                (isDark
-                    ? const Color(0xFF44474E).withValues(alpha: 0.3)
-                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                icon,
-                color: iconColor,
-                size: 24,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-                color: theme.colorScheme.onSurface,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBloodBankCard(
-      BuildContext context, {
-      required String name,
-      required String distance,
-      required List<Map<String, dynamic>> availability,
-    }) {
-      final theme = Theme.of(context);
-      final isDark = theme.brightness == Brightness.dark;
-
-      return Container(
-        width: 280,
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1D2024) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-          ),
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.location_on,
-                            size: 14,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            distance,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF282A2F)
-                        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.directions,
-                    size: 18,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Current Availability:',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: Row(
-                children: availability.map((item) {
-                  final statusColor = item['color'] as Color;
-                  return Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF15181C)
-                            : const Color(0xFFF1F3FC),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: statusColor.withValues(alpha: 0.2),
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            item['type'],
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: theme.colorScheme.onSurface,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            item['status'],
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                              color: statusColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
 }
