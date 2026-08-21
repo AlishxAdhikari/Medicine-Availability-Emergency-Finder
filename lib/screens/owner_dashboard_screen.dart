@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
@@ -1632,20 +1633,43 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           ],
         ),
         actions: [
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.circle, size: 8, color: Color(0xFF4ADE80)),
-                SizedBox(width: 6),
-                Text('Online', style: TextStyle(fontSize: 12)),
-              ],
-            ),
+          ValueListenableBuilder<UserProfile>(
+            valueListenable: AppStateManager.instance.userProfileNotifier,
+            builder: (context, profile, _) {
+              return ValueListenableBuilder<String>(
+                valueListenable: AppStateManager.instance.usernameNotifier,
+                builder: (context, username, __) {
+                  final fullName = profile.fullName.trim();
+                  final displayName = fullName.isNotEmpty
+                      ? fullName
+                      : (username.trim().isNotEmpty ? username.trim() : 'Owner');
+                  return Container(
+                    margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.circle, size: 8, color: Color(0xFF4ADE80)),
+                        const SizedBox(width: 6),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 110),
+                          child: Text(
+                            displayName,
+                            style: const TextStyle(fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.home_outlined),
@@ -2865,6 +2889,7 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                           '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
                       return ListTile(
                         dense: true,
+                        onTap: () => _showTransactionDetail(entry),
                         leading: CircleAvatar(
                           backgroundColor: (isDispense ? Colors.red : _posGreen)
                               .withValues(alpha: 0.12),
@@ -2923,6 +2948,222 @@ SliverGridDelegateWithMaxCrossAxisExtent(
     );
   }
 
+  Future<void> _showTransactionDetail(StockTransactionEntry entry) async {
+    final isDispense = entry.isDispense;
+    final color = isDispense ? Colors.red.shade700 : _posGreen;
+    final price = _priceForMedicine(entry.medicineName);
+    final lineTotal = price * entry.quantityDelta.abs();
+    final who = entry.source == 'POS_SYNC'
+        ? 'POS terminal (auto-sync)'
+        : (entry.changedByUsername ?? 'Manual entry');
+    final when = entry.serverTimestamp;
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final fullDate =
+        '${weekdays[when.weekday - 1]}, ${when.day.toString().padLeft(2, '0')}/'
+        '${when.month.toString().padLeft(2, '0')}/${when.year} at '
+        '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}:'
+        '${when.second.toString().padLeft(2, '0')}';
+
+    // Current on-hand quantity for this medicine, if it's still stocked.
+    OwnerStock? currentStock;
+    for (final s in _stock) {
+      if (s.medicineName.toLowerCase() == entry.medicineName.toLowerCase()) {
+        currentStock = s;
+        break;
+      }
+    }
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 12,
+          backgroundColor: Colors.white,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420, maxHeight: 560),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.08),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: color.withValues(alpha: 0.15),
+                        child: Icon(
+                          isDispense
+                              ? Icons.shopping_cart_checkout_rounded
+                              : Icons.inventory_2_rounded,
+                          color: color,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.medicineName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              entry.transactionType,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: color,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          entry.quantityDelta > 0
+                              ? '+${entry.quantityDelta}'
+                              : '${entry.quantityDelta}',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: Icon(Icons.close_rounded, color: Colors.grey.shade500),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
+                ),
+                // Body
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                    child: Column(
+                      children: [
+                        _detailRow(Icons.event_outlined, 'Date & time', fullDate),
+                        _detailRow(Icons.person_outline, 'Performed by', who),
+                        _detailRow(
+                          Icons.sync_alt,
+                          'Source',
+                          entry.source == 'POS_SYNC'
+                              ? 'POS sync'
+                              : 'Manual (dashboard)',
+                        ),
+                        _detailRow(Icons.tag, 'Transaction ID', '#${entry.id}'),
+                        _detailRow(
+                          Icons.sell_outlined,
+                          'Unit price',
+                          'Rs ${price.toStringAsFixed(2)}',
+                        ),
+                        if (isDispense)
+                          _detailRow(
+                            Icons.payments_outlined,
+                            'Line total (est.)',
+                            'Rs ${lineTotal.toStringAsFixed(2)}',
+                          ),
+                        _detailRow(
+                          Icons.inventory_2_outlined,
+                          'Stock on hand now',
+                          currentStock != null
+                              ? '${currentStock.quantity} units'
+                              : 'No longer stocked',
+                        ),
+                        if (currentStock != null)
+                          _detailRow(
+                            Icons.warning_amber_outlined,
+                            'Low-stock alert level',
+                            '${currentStock.lowThreshold} units',
+                          ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _posBg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_outline,
+                                  size: 16, color: Colors.grey.shade600),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  isDispense
+                                      ? 'This entry reduced shelf stock by ${entry.quantityDelta.abs()} unit(s), recorded by the source above.'
+                                      : 'This entry added ${entry.quantityDelta.abs()} unit(s) back to shelf stock (restock/adjustment).',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: Colors.grey.shade700,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.grey.shade600),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 130,
+            child: Text(label,
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   double _priceForMedicine(String name) {
     for (final s in _stock) {
       if (s.medicineName.toLowerCase() == name.toLowerCase()) {
@@ -2963,64 +3204,289 @@ SliverGridDelegateWithMaxCrossAxisExtent(
         .toList();
     final dispenseTx = dayTx.where((t) => t.isDispense).toList();
 
+    // Stock-ledger totals for the day -- always populated from the server,
+    // unlike the local completed-bills log below (which only knows about
+    // sales checked out through this device's own POS tab).
+    final stockRevenue = _estimateRevenue(dispenseTx);
+    final stockUnits = dispenseTx.fold<int>(0, (s, t) => s + t.quantityDelta.abs());
+    final medUnitsToday = <String, int>{};
+    for (final t in dispenseTx) {
+      medUnitsToday[t.medicineName] = (medUnitsToday[t.medicineName] ?? 0) + t.quantityDelta.abs();
+    }
+    final topMedsToday = medUnitsToday.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final cashierUnitsToday = <String, int>{};
+    final cashierRevenueToday = <String, double>{};
+    for (final t in dispenseTx) {
+      final who = t.changedByUsername ?? (t.source == 'POS_SYNC' ? 'POS' : 'Unknown');
+      cashierUnitsToday[who] = (cashierUnitsToday[who] ?? 0) + t.quantityDelta.abs();
+      cashierRevenueToday[who] =
+          (cashierRevenueToday[who] ?? 0) + _priceForMedicine(t.medicineName) * t.quantityDelta.abs();
+    }
+    final cashierRevenueTodayRank = cashierRevenueToday.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
     if (!mounted) return;
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Day report — $dateStr'),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                pharmacy.isEmpty ? 'Pharmacy' : pharmacy,
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-              ),
-              const SizedBox(height: 8),
-              Text('Completed bills (with customer): ${sales.length}'),
-              Text(
-                'Total revenue: Rs ${sales.fold<double>(0, (s, r) => s + r.total).toStringAsFixed(2)}',
-              ),
-              Text(
-                'Units in bills: ${sales.fold<int>(0, (s, r) => s + r.unitCount)}',
-              ),
-              Text('Stock dispense events: ${dispenseTx.length}'),
-              const SizedBox(height: 12),
-              const Text(
-                'PDF includes store name, each bill time, customer name/phone/membership, medicines bought, amounts, and cashier.',
-                style: TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              try {
-                await SalesReportPdf.instance.shareDayReport(
-                  pharmacyName: pharmacy,
-                  dayStart: dayStart,
-                  sales: sales,
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('PDF failed: $e'),
-                    backgroundColor: Colors.red,
+      barrierColor: Colors.black54,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 12,
+          backgroundColor: Colors.white,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header with gradient
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [_posGreen, _posGreenLight],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                   ),
-                );
-              }
-            },
-            icon: const Icon(Icons.picture_as_pdf, size: 18),
-            label: const Text('Download PDF'),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.picture_as_pdf_rounded,
+                            color: Colors.white, size: 28),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Generate Day Report',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        dateStr,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Body
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.local_pharmacy_rounded,
+                              size: 18, color: _posGreen),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              pharmacy.isEmpty ? 'Pharmacy' : pharmacy,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Stats cards
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _pdfStatCard(
+                              icon: Icons.inventory_2_outlined,
+                              label: 'Units sold',
+                              value: '$stockUnits',
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _pdfStatCard(
+                              icon: Icons.payments_outlined,
+                              label: 'Revenue',
+                              value: 'Rs ${stockRevenue.toStringAsFixed(0)}',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _pdfStatCard(
+                              icon: Icons.receipt_long_outlined,
+                              label: 'Dispense events',
+                              value: '${dispenseTx.length}',
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _pdfStatCard(
+                              icon: Icons.person_outline,
+                              label: 'Bills with customer',
+                              value: '${sales.length}',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _posBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 16, color: Colors.grey.shade600),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'PDF includes stock-ledger totals, units dispensed, cashier breakdown, and any completed bills (store name, bill time, customer details, medicines, amounts) logged on this device.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: Colors.grey.shade700,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Actions
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.grey.shade700,
+                            side: BorderSide(color: Colors.grey.shade300),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            try {
+                              await SalesReportPdf.instance.shareDayReport(
+                                pharmacyName: pharmacy,
+                                dayStart: dayStart,
+                                sales: sales,
+                                stockRevenue: stockRevenue,
+                                stockUnitsDispensed: stockUnits,
+                                stockDispenseEvents: dispenseTx.length,
+                                stockCashierRevenue: cashierRevenueTodayRank,
+                                stockCashierUnits: cashierUnitsToday,
+                                stockTopMedicines: topMedsToday,
+                              );
+                            } catch (e) {
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('PDF failed: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.download_rounded, size: 18),
+                          label: const Text('Download PDF'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _posGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _pdfStatCard({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: _posGreen),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade600,
+            ),
           ),
         ],
       ),
@@ -3072,14 +3538,21 @@ SliverGridDelegateWithMaxCrossAxisExtent(
     }
     final cashierRank = cashierUnits.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final cashierRevenueRank = cashierRevenue.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
 
     // Top medicines
     final medUnits = <String, int>{};
+    final medRevenue = <String, double>{};
     for (final t in _transactions.where((t) => t.isDispense)) {
       medUnits[t.medicineName] = (medUnits[t.medicineName] ?? 0) + t.quantityDelta.abs();
+      medRevenue[t.medicineName] = (medRevenue[t.medicineName] ?? 0) +
+          _priceForMedicine(t.medicineName) * t.quantityDelta.abs();
     }
     final topMeds = medUnits.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final totalStockRevenueAll =
+        cashierRevenue.values.fold<double>(0, (a, b) => a + b);
 
     final maxDayUnits = unitsPerDay.values.fold<int>(1, (a, b) => a > b ? a : b);
 
@@ -3090,6 +3563,46 @@ SliverGridDelegateWithMaxCrossAxisExtent(
 
     final unitsChange = pctChange(todayUnits.toDouble(), yUnits.toDouble());
     final revChange = pctChange(todayRevenue, yRevenue);
+
+    // Movement mix — dispensed vs restocked, across all loaded history.
+    final dispenseUnits = _transactions
+        .where((t) => t.isDispense)
+        .fold<int>(0, (s, t) => s + t.quantityDelta.abs());
+    final restockUnits = _transactions
+        .where((t) => !t.isDispense)
+        .fold<int>(0, (s, t) => s + t.quantityDelta.abs());
+
+    // Sales activity by time of day (dispense events, all loaded history).
+    final hourBuckets = List<int>.filled(4, 0);
+    for (final t in _transactions.where((t) => t.isDispense)) {
+      final h = t.serverTimestamp.hour;
+      if (h >= 6 && h < 12) {
+        hourBuckets[0]++;
+      } else if (h >= 12 && h < 17) {
+        hourBuckets[1]++;
+      } else if (h >= 17 && h < 21) {
+        hourBuckets[2]++;
+      } else {
+        hourBuckets[3]++;
+      }
+    }
+    const hourLabels = ['Morning\n6–12', 'Afternoon\n12–5', 'Evening\n5–9', 'Night\n9–6'];
+    final maxHourBucket = hourBuckets.fold<int>(1, (a, b) => a > b ? a : b);
+
+    // Average revenue on days with sales, and the best day within the window.
+    final activeDays = revenuePerDay.values.where((v) => v > 0).length;
+    final avgDailyRevenue = activeDays == 0
+        ? 0.0
+        : revenuePerDay.values.fold<double>(0, (a, b) => a + b) / activeDays;
+    DateTime bestDay = days.first;
+    double bestDayRevenue = -1;
+    for (final d in days) {
+      final r = revenuePerDay[d] ?? 0;
+      if (r > bestDayRevenue) {
+        bestDayRevenue = r;
+        bestDay = d;
+      }
+    }
 
     return RefreshIndicator(
       onRefresh: _loadTransactions,
@@ -3193,6 +3706,156 @@ SliverGridDelegateWithMaxCrossAxisExtent(
               style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
 
           const SizedBox(height: 24),
+          const Text('Revenue trend',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 110,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _RevenueTrendPainter(
+                days.map((d) => revenuePerDay[d] ?? 0).toList(),
+                _posGreen,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: days.map((d) {
+              final label = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][d.weekday - 1];
+              return Expanded(
+                child: Text(label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+              );
+            }).toList(),
+          ),
+
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Rs ${avgDailyRevenue.toStringAsFixed(0)}',
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                      Text('Avg revenue / active day',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                    ],
+                  ),
+                ),
+                Container(width: 1, height: 32, color: Colors.grey.shade200),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        bestDayRevenue <= 0
+                            ? '—'
+                            : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                                [bestDay.weekday - 1],
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+                      ),
+                      Text(
+                        bestDayRevenue <= 0
+                            ? 'Best day this week'
+                            : 'Best day (Rs ${bestDayRevenue.toStringAsFixed(0)})',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          const Text('Stock movement mix',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 4),
+          Text('All loaded history — dispensed vs. restocked units',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              SizedBox(
+                width: 96,
+                height: 96,
+                child: CustomPaint(
+                  painter: _DonutChartPainter(
+                    [dispenseUnits.toDouble(), restockUnits.toDouble()],
+                    [Colors.red.shade400, _posGreenLight],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _legendRow(Colors.red.shade400, 'Dispensed', '$dispenseUnits units'),
+                    const SizedBox(height: 10),
+                    _legendRow(_posGreenLight, 'Restocked', '$restockUnits units'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+          const Text('Sales activity by time of day',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 12),
+          ...List.generate(4, (i) {
+            final frac = maxHourBucket == 0 ? 0.0 : hourBuckets[i] / maxHourBucket;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 84,
+                    child: Text(hourLabels[i],
+                        style: TextStyle(fontSize: 10.5, color: Colors.grey.shade700)),
+                  ),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: frac,
+                        minHeight: 10,
+                        backgroundColor: Colors.grey.shade200,
+                        color: _posGreen,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 26,
+                    child: Text('${hourBuckets[i]}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ),
+            );
+          }),
+
+          const SizedBox(height: 24),
           const Text('Cashier / user ranking',
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
           const SizedBox(height: 8),
@@ -3285,6 +3948,11 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                   pharmacyName: pharmacy,
                   sales: all,
                   generatedAt: DateTime.now(),
+                  stockRevenue: totalStockRevenueAll,
+                  stockUnits: dispenseUnits,
+                  stockCashierRevenue: cashierRevenueRank,
+                  stockTopMedicines: topMeds,
+                  stockMedicineRevenue: medRevenue,
                 );
               } catch (e) {
                 if (!mounted) return;
@@ -3303,6 +3971,22 @@ SliverGridDelegateWithMaxCrossAxisExtent(
           const SizedBox(height: 24),
         ],
       ),
+    );
+  }
+
+  Widget _legendRow(Color color, String label, String value) {
+    return Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        const Spacer(),
+        Text(value, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+      ],
     );
   }
 
@@ -3356,3 +4040,187 @@ SliverGridDelegateWithMaxCrossAxisExtent(
 
 
 }
+<<<<<<< Updated upstream
+=======
+
+class _ActivityRow extends StatelessWidget {
+  const _ActivityRow({required this.entry});
+  final StockTransactionEntry entry;
+
+  static String _relativeTime(DateTime timestamp) {
+    final delta = DateTime.now().difference(timestamp);
+    if (delta.inSeconds < 60) return 'just now';
+    if (delta.inMinutes < 60) return '${delta.inMinutes} min ago';
+    if (delta.inHours < 24) {
+      return '${delta.inHours} hour${delta.inHours == 1 ? '' : 's'} ago';
+    }
+    if (delta.inDays < 7) {
+      return '${delta.inDays} day${delta.inDays == 1 ? '' : 's'} ago';
+    }
+    return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
+  }
+
+  String get _attribution {
+    if (entry.source == 'POS_SYNC') return 'POS';
+    return entry.changedByUsername ?? 'Manual';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDispense = entry.isDispense;
+    final deltaColor =
+        isDispense ? theme.colorScheme.error : theme.colorScheme.primary;
+
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: deltaColor.withValues(alpha: 0.12),
+        child: Icon(
+          isDispense ? Icons.arrow_downward : Icons.arrow_upward,
+          color: deltaColor,
+          size: 20,
+        ),
+      ),
+      title: Text(entry.medicineName,
+          style: theme.textTheme.bodyLarge
+              ?.copyWith(fontWeight: FontWeight.w500)),
+      subtitle: Text(
+        '${entry.transactionType.toLowerCase()} · $_attribution · ${_relativeTime(entry.serverTimestamp)}',
+        style: theme.textTheme.bodySmall,
+      ),
+      trailing: Text(
+        entry.quantityDelta > 0
+            ? '+${entry.quantityDelta}'
+            : '${entry.quantityDelta}',
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: deltaColor,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+/// Smooth revenue-trend sparkline used at the top of the Analytics tab.
+class _RevenueTrendPainter extends CustomPainter {
+  _RevenueTrendPainter(this.values, this.color);
+
+  final List<double> values;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty) return;
+    final maxV = values.fold<double>(0, (a, b) => a > b ? a : b);
+    final safeMax = maxV <= 0 ? 1.0 : maxV;
+    final n = values.length;
+    final stepX = n > 1 ? size.width / (n - 1) : size.width;
+
+    final points = <Offset>[
+      for (var i = 0; i < n; i++)
+        Offset(
+          n > 1 ? i * stepX : size.width / 2,
+          size.height - (values[i] / safeMax) * (size.height - 6) - 3,
+        ),
+    ];
+
+    if (maxV <= 0) {
+      // Flat baseline when there is no data yet, so the chart isn't blank.
+      final flatPaint = Paint()
+        ..color = color.withValues(alpha: 0.3)
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke;
+      final y = size.height - 3;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), flatPaint);
+      return;
+    }
+
+    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length; i++) {
+      final prev = points[i - 1];
+      final cur = points[i];
+      final midX = (prev.dx + cur.dx) / 2;
+      linePath.cubicTo(midX, prev.dy, midX, cur.dy, cur.dx, cur.dy);
+    }
+
+    final fillPath = Path()
+      ..addPath(linePath, Offset.zero)
+      ..lineTo(points.last.dx, size.height)
+      ..lineTo(points.first.dx, size.height)
+      ..close();
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [color.withValues(alpha: 0.28), color.withValues(alpha: 0.0)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawPath(fillPath, fillPaint);
+
+    final linePaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(linePath, linePaint);
+
+    final dotFill = Paint()..color = color;
+    final dotRing = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    for (final p in points) {
+      canvas.drawCircle(p, 3.2, dotFill);
+      canvas.drawCircle(p, 3.2, dotRing);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RevenueTrendPainter oldDelegate) =>
+      oldDelegate.values != values || oldDelegate.color != color;
+}
+
+/// Simple ring/donut chart for a small set of proportions (e.g. dispensed vs
+/// restocked units). Draws a grey ring when there is no data yet.
+class _DonutChartPainter extends CustomPainter {
+  _DonutChartPainter(this.values, this.colors);
+
+  final List<double> values;
+  final List<Color> colors;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final total = values.fold<double>(0, (a, b) => a + b);
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    const strokeWidth = 16.0;
+    final ringRect = Rect.fromCircle(center: center, radius: radius - strokeWidth / 2);
+
+    if (total <= 0) {
+      final emptyPaint = Paint()
+        ..color = Colors.grey.shade300
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth;
+      canvas.drawArc(ringRect, 0, 2 * math.pi, false, emptyPaint);
+      return;
+    }
+
+    double startAngle = -math.pi / 2;
+    for (var i = 0; i < values.length; i++) {
+      if (values[i] <= 0) continue;
+      final sweep = (values[i] / total) * 2 * math.pi;
+      final segmentPaint = Paint()
+        ..color = colors[i % colors.length]
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.butt;
+      canvas.drawArc(ringRect, startAngle, sweep, false, segmentPaint);
+      startAngle += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DonutChartPainter oldDelegate) =>
+      oldDelegate.values != values || oldDelegate.colors != colors;
+}
+>>>>>>> Stashed changes
