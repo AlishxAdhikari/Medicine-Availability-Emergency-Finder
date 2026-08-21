@@ -1,7 +1,6 @@
 asgiref==3.11.1
 attrs==26.1.0
 # Pinned to the version the project is actually developed against. Left
-# Pinned to the version the project is actually developed against. Left
 # unpinned, a fresh `pip install -r requirements.txt` picks up whatever is
 # newest, so CI and a teammate's laptop can silently run a different major
 # version of Django than the one this code was tested on.
