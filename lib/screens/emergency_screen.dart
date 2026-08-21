@@ -192,9 +192,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     // or unreachable backend hid the one control on this screen that has to
     // work when everything else has failed.
     if (_bootstrapping) {
-      return const Scaffold(
-        body: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+      return const ColoredBox(
+        color: Color(0xFFF0F2F7),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -209,9 +210,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       );
     }
 
-    return Scaffold(
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+    final pageBg = isDark ? const Color(0xFF111418) : const Color(0xFFF0F2F7);
+    return ColoredBox(
+      color: pageBg,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -344,12 +347,22 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       children: [
         Row(
           children: [
-            Icon(Icons.local_taxi, color: theme.colorScheme.primary),
-            const SizedBox(width: 8),
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(Icons.local_taxi_rounded,
+                  size: 17, color: theme.colorScheme.primary),
+            ),
+            const SizedBox(width: 10),
             Text(
               'Ambulance Services',
               style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
               ),
             ),
           ],
@@ -388,98 +401,121 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1D2024) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : const Color(0xFFE6EAF0),
         ),
-      ),
-      color: isDark ? const Color(0xFF1D2024) : Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        amb.name,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.location_on,
-                            size: 14,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${amb.location} (${amb.distance})',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: amb.isAvailable
-                        ? const Color(0xFF00897B).withValues(alpha: 0.12)
-                        : theme.colorScheme.error.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        amb.isAvailable ? Icons.check_circle : Icons.cancel,
-                        size: 14,
-                        color: amb.isAvailable ? const Color(0xFF00897B) : theme.colorScheme.error,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        amb.isAvailable ? 'Available' : 'Unavailable',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: amb.isAvailable ? const Color(0xFF00897B) : theme.colorScheme.error,
-                        ),
-                      ),
-                    ],
-                  ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.local_taxi_rounded,
+                    color: theme.colorScheme.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      amb.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${amb.location} · ${amb.distance}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: amb.isAvailable
+                      ? const Color(0xFF00897B).withValues(alpha: 0.12)
+                      : theme.colorScheme.error.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      amb.isAvailable ? Icons.check_circle : Icons.cancel,
+                      size: 13,
+                      color: amb.isAvailable
+                          ? const Color(0xFF00897B)
+                          : theme.colorScheme.error,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      amb.isAvailable ? 'Available' : 'Busy',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: amb.isAvailable
+                            ? const Color(0xFF00897B)
+                            : theme.colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 42,
+            child: FilledButton.icon(
               onPressed: amb.phone.trim().isEmpty
                   ? null
-                  : () => dialEmergencyNumber(context, amb.phone, subject: amb.name),
-              icon: const Icon(Icons.call, size: 16),
-              label: const Text('Call Now', style: TextStyle(fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isDark ? const Color(0xFFAAC7FF) : theme.colorScheme.primary,
-                foregroundColor: isDark ? Colors.black : Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  : () => dialEmergencyNumber(context, amb.phone,
+                      subject: amb.name),
+              icon: const Icon(Icons.call_rounded, size: 17),
+              label: const Text('Call Now',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF0A73E0),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(11)),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -496,12 +532,22 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.bloodtype, color: theme.colorScheme.error),
-                const SizedBox(width: 8),
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFBA1A1A).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: const Icon(Icons.bloodtype_rounded,
+                      size: 17, color: Color(0xFFBA1A1A)),
+                ),
+                const SizedBox(width: 10),
                 Text(
                   'Blood Banks',
                   style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
                   ),
                 ),
               ],
@@ -697,153 +743,160 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1D2024) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : const Color(0xFFE6EAF0),
         ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
       ),
-      color: isDark ? const Color(0xFF1D2024) : Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        bank.name,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.location_on,
-                            size: 14,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${bank.location} (${bank.distance})',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFBA1A1A).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 4,
-              childAspectRatio: 1.5,
-              crossAxisSpacing: 8,
-              children: bank.availability.map((stock) {
-                Color statusColor;
-                Color bgColor;
-                if (stock.status == 'CRITICAL') {
-                  statusColor = const Color(0xFFBA1A1A);
-                  bgColor = const Color(0xFFFFDAD6).withValues(alpha: 0.4);
-                } else if (stock.status == 'LOW') {
-                  statusColor = const Color(0xFFB47A00);
-                  bgColor = const Color(0xFFFDF3D9).withValues(alpha: 0.4);
-                } else {
-                  statusColor = const Color(0xFF00897B);
-                  bgColor = const Color(0xFFE6F4E6).withValues(alpha: 0.4);
-                }
-
-                return Container(
-                  decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: statusColor.withValues(alpha: 0.2)),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        stock.type,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.onSurface,
-                        ),
+                child: const Icon(Icons.bloodtype_rounded,
+                    color: Color(0xFFBA1A1A), size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bank.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        letterSpacing: -0.2,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        stock.status,
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.bold,
-                          color: statusColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: bank.phone.trim().isEmpty
-                        ? null
-                        : () => dialEmergencyNumber(context, bank.phone, subject: bank.name),
-                    icon: const Icon(Icons.call, size: 16),
-                    label: const Text('Call Center',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor:
-                          isDark ? const Color(0xFF282A2F) : const Color(0xFFF1F3FC),
-                      foregroundColor: theme.colorScheme.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    // BloodBank does carry lat/lng, so unlike ambulances these
-                    // can genuinely be navigated to.
-                    onPressed: bank.hasCoordinates
-                        ? () => _openDirections(
-                              lat: bank.latitude,
-                              lng: bank.longitude,
-                              label: bank.name,
-                            )
-                        : null,
-                    icon: const Icon(Icons.directions, size: 16),
-                    label: const Text('Directions',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor:
-                          isDark ? const Color(0xFF282A2F) : const Color(0xFFF1F3FC),
-                      foregroundColor: theme.colorScheme.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${bank.location} · ${bank.distance}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 4,
+            childAspectRatio: 1.35,
+            crossAxisSpacing: 6,
+            mainAxisSpacing: 6,
+            children: bank.availability.map((stock) {
+              Color statusColor;
+              if (stock.status == 'CRITICAL') {
+                statusColor = const Color(0xFFBA1A1A);
+              } else if (stock.status == 'LOW') {
+                statusColor = const Color(0xFFB47A00);
+              } else {
+                statusColor = const Color(0xFF00897B);
+              }
+              return Container(
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.2)),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      stock.type,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      stock.status,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: bank.phone.trim().isEmpty
+                      ? null
+                      : () => dialEmergencyNumber(context, bank.phone,
+                          subject: bank.name),
+                  icon: const Icon(Icons.call_rounded, size: 16),
+                  label: const Text('Call',
+                      style: TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w700)),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11)),
                   ),
                 ),
-              ],
-            ),
-          ],
-        ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: bank.hasCoordinates
+                      ? () => _openDirections(
+                            lat: bank.latitude,
+                            lng: bank.longitude,
+                            label: bank.name,
+                          )
+                      : null,
+                  icon: const Icon(Icons.directions_rounded, size: 16),
+                  label: const Text('Directions',
+                      style: TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w700)),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    backgroundColor: const Color(0xFF0A73E0),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
