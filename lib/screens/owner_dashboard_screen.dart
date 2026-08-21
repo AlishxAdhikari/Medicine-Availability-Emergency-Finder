@@ -449,7 +449,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                           ),
                           const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
-                            value: membership,
+                            initialValue: membership,
                             decoration: const InputDecoration(
                               labelText: 'Membership',
                               prefixIcon: Icon(Icons.card_membership, size: 20),
@@ -803,7 +803,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   }
 
   double get _cartTotal => _cart.fold(0, (sum, item) => sum + item.lineTotal);
-  int get _cartItemCount => _cart.fold(0, (sum, item) => sum + item.quantity);
 
   Future<void> _completeSale() async {
     if (_cart.isEmpty || _selling) return;
@@ -1171,7 +1170,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     vatPercent: 13,
                   );
                 } catch (e) {
-                  if (context.mounted) {
+                  if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('PDF failed: $e'),
@@ -1452,20 +1451,22 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                               : results.isEmpty
                                   ? const Center(
                                       child: Text('No medicines found yet.'))
-                                  : ListView.builder(
-                                      itemCount: results.length,
-                                      itemBuilder: (context, index) {
-                                        final medicine = results[index];
-                                        final id = medicine['id'] as int;
-                                        return RadioListTile<int>(
-                                          value: id,
-                                          groupValue: selectedId,
-                                          title: Text('${medicine['name']}'),
-                                          dense: true,
-                                          onChanged: (value) => setDialogState(
-                                              () => selectedId = value),
-                                        );
-                                      },
+                                  : RadioGroup<int>(
+                                      groupValue: selectedId,
+                                      onChanged: (value) => setDialogState(
+                                          () => selectedId = value),
+                                      child: ListView.builder(
+                                        itemCount: results.length,
+                                        itemBuilder: (context, index) {
+                                          final medicine = results[index];
+                                          final id = medicine['id'] as int;
+                                          return RadioListTile<int>(
+                                            value: id,
+                                            title: Text('${medicine['name']}'),
+                                            dense: true,
+                                          );
+                                        },
+                                      ),
                                     ),
                         ),
                         TextFormField(
@@ -2261,7 +2262,7 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                   onRefresh: _load,
                   child: ListView.separated(
                     itemCount: rows.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final item = rows[index];
                       final isLow = item.quantity <= item.lowThreshold;
@@ -2662,7 +2663,7 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                   onRefresh: _loadCustomers,
                   child: ListView.separated(
                     itemCount: list.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final c = list[index];
                       final selected = _selectedCustomer?.id == c.id ||
@@ -2849,7 +2850,7 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                   onRefresh: _loadTransactions,
                   child: ListView.separated(
                     itemCount: _transactions.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final entry = _transactions[index];
                       final isDispense = entry.isDispense;
@@ -3354,62 +3355,4 @@ SliverGridDelegateWithMaxCrossAxisExtent(
   }
 
 
-}
-
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.entry});
-  final StockTransactionEntry entry;
-
-  static String _relativeTime(DateTime timestamp) {
-    final delta = DateTime.now().difference(timestamp);
-    if (delta.inSeconds < 60) return 'just now';
-    if (delta.inMinutes < 60) return '${delta.inMinutes} min ago';
-    if (delta.inHours < 24) {
-      return '${delta.inHours} hour${delta.inHours == 1 ? '' : 's'} ago';
-    }
-    if (delta.inDays < 7) {
-      return '${delta.inDays} day${delta.inDays == 1 ? '' : 's'} ago';
-    }
-    return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
-  }
-
-  String get _attribution {
-    if (entry.source == 'POS_SYNC') return 'POS';
-    return entry.changedByUsername ?? 'Manual';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDispense = entry.isDispense;
-    final deltaColor =
-        isDispense ? theme.colorScheme.error : theme.colorScheme.primary;
-
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: deltaColor.withValues(alpha: 0.12),
-        child: Icon(
-          isDispense ? Icons.arrow_downward : Icons.arrow_upward,
-          color: deltaColor,
-          size: 20,
-        ),
-      ),
-      title: Text(entry.medicineName,
-          style: theme.textTheme.bodyLarge
-              ?.copyWith(fontWeight: FontWeight.w500)),
-      subtitle: Text(
-        '${entry.transactionType.toLowerCase()} · $_attribution · ${_relativeTime(entry.serverTimestamp)}',
-        style: theme.textTheme.bodySmall,
-      ),
-      trailing: Text(
-        entry.quantityDelta > 0
-            ? '+${entry.quantityDelta}'
-            : '${entry.quantityDelta}',
-        style: theme.textTheme.titleMedium?.copyWith(
-          color: deltaColor,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
 }
