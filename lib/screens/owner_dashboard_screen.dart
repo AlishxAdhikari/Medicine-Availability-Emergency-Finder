@@ -450,7 +450,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                           ),
                           const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
-                            initialValue: membership,
+                            value: membership,
                             decoration: const InputDecoration(
                               labelText: 'Membership',
                               prefixIcon: Icon(Icons.card_membership, size: 20),
@@ -804,6 +804,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
   }
 
   double get _cartTotal => _cart.fold(0, (sum, item) => sum + item.lineTotal);
+  int get _cartItemCount => _cart.fold(0, (sum, item) => sum + item.quantity);
 
   Future<void> _completeSale() async {
     if (_cart.isEmpty || _selling) return;
@@ -1171,7 +1172,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     vatPercent: 13,
                   );
                 } catch (e) {
-                  if (mounted) {
+                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('PDF failed: $e'),
@@ -1452,22 +1453,20 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                               : results.isEmpty
                                   ? const Center(
                                       child: Text('No medicines found yet.'))
-                                  : RadioGroup<int>(
-                                      groupValue: selectedId,
-                                      onChanged: (value) => setDialogState(
-                                          () => selectedId = value),
-                                      child: ListView.builder(
-                                        itemCount: results.length,
-                                        itemBuilder: (context, index) {
-                                          final medicine = results[index];
-                                          final id = medicine['id'] as int;
-                                          return RadioListTile<int>(
-                                            value: id,
-                                            title: Text('${medicine['name']}'),
-                                            dense: true,
-                                          );
-                                        },
-                                      ),
+                                  : ListView.builder(
+                                      itemCount: results.length,
+                                      itemBuilder: (context, index) {
+                                        final medicine = results[index];
+                                        final id = medicine['id'] as int;
+                                        return RadioListTile<int>(
+                                          value: id,
+                                          groupValue: selectedId,
+                                          title: Text('${medicine['name']}'),
+                                          dense: true,
+                                          onChanged: (value) => setDialogState(
+                                              () => selectedId = value),
+                                        );
+                                      },
                                     ),
                         ),
                         TextFormField(
@@ -2286,7 +2285,7 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                   onRefresh: _load,
                   child: ListView.separated(
                     itemCount: rows.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final item = rows[index];
                       final isLow = item.quantity <= item.lowThreshold;
@@ -2687,7 +2686,7 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                   onRefresh: _loadCustomers,
                   child: ListView.separated(
                     itemCount: list.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final c = list[index];
                       final selected = _selectedCustomer?.id == c.id ||
@@ -2874,7 +2873,7 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                   onRefresh: _loadTransactions,
                   child: ListView.separated(
                     itemCount: _transactions.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final entry = _transactions[index];
                       final isDispense = entry.isDispense;
@@ -4040,8 +4039,6 @@ SliverGridDelegateWithMaxCrossAxisExtent(
 
 
 }
-<<<<<<< Updated upstream
-=======
 
 class _ActivityRow extends StatelessWidget {
   const _ActivityRow({required this.entry});
@@ -4223,4 +4220,3 @@ class _DonutChartPainter extends CustomPainter {
   bool shouldRepaint(covariant _DonutChartPainter oldDelegate) =>
       oldDelegate.values != values || oldDelegate.colors != colors;
 }
->>>>>>> Stashed changes
