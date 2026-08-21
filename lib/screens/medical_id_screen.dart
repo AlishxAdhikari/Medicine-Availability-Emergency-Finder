@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../state.dart';
+import '../widgets/emergency_call.dart';
 import '../widgets/initials_avatar.dart';
 
 class MedicalIdScreen extends StatefulWidget {
@@ -771,14 +772,18 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.call),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Calling ${contact.name}...'),
-                              backgroundColor: theme.colorScheme.primary,
-                            ),
-                          );
-                        },
+                        // Was a SnackBar reading "Calling <name>..." that never
+                        // dialled anything -- the exact theatre the emergency
+                        // screen was fixed out of. contact.phoneNumber was on
+                        // the model the whole time, just never used.
+                        onPressed: contact.phoneNumber.trim().isEmpty
+                            ? null
+                            : () => dialEmergencyNumber(
+                                  context,
+                                  contact.phoneNumber,
+                                  subject:
+                                      '${contact.name} (${contact.relationship})',
+                                ),
                         style: IconButton.styleFrom(
                           backgroundColor: theme.colorScheme.primaryContainer,
                           foregroundColor: theme.colorScheme.onPrimaryContainer,
