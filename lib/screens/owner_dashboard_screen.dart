@@ -1,34 +1,26 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:excel/excel.dart' hide Border;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
+import '../services/owner_customer_service.dart';
+import '../services/owner_sales_log.dart';
+import '../services/sales_report_pdf.dart';
 import '../services/owner_stock_service.dart';
 import '../services/pharmacy_service.dart';
 import '../services/stock_alert_service.dart';
 import '../state.dart';
 
-/// True when [edited] denotes a different price from [current].
-///
-/// Pulled out as a pure top-level function -- same reasoning as
-/// parseStockPayload in owner_stock_service.dart -- because it is the one
-/// piece of this screen that is worth testing without a device.
-///
-/// The comparison MUST be numeric. Price crosses the wire as a string: DRF
-/// renders PharmacyMedicineStock.price (a DecimalField) as "10.50", and
-/// OwnerStock.price keeps it as a string rather than guessing a precision.
-/// A naive `edited != current` therefore reports a change whenever the two
-/// sides merely spell the same number differently -- an owner who opens the
-/// dialog on "10.50", types "10.5", and saves would fire a PATCH that changes
-/// nothing, and the same mismatch in reverse ("10.5" from the server against
-/// an untouched "10.50" field) fires one on a dialog the owner only looked at.
-/// Those phantom writes are not free: every write is an owner-audited call.
-///
-/// Falls back to a trimmed string compare when either side will not parse, so
-/// a value this function does not understand is still passed through to the
-/// server for it to accept or reject, rather than being silently dropped.
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+
 bool priceHasChanged(String current, String edited) {
   final a = num.tryParse(current.trim());
   final b = num.tryParse(edited.trim());
@@ -36,12 +28,6 @@ bool priceHasChanged(String current, String edited) {
   return current.trim() != edited.trim();
 }
 
-/// Validates the quantity field. Returns null when valid, else the message to
-/// show under the field.
-///
-/// This exists so a non-numeric entry is refused at the dialog instead of
-/// being swallowed: `int.tryParse(...)` followed by `if (value != null)` would
-/// close the dialog, write nothing, and tell the owner nothing.
 String? validateQuantity(String? raw) {
   final text = (raw ?? '').trim();
   if (text.isEmpty) return 'Enter a quantity.';
@@ -51,40 +37,12 @@ String? validateQuantity(String? raw) {
   return null;
 }
 
-/// True when [error] says the caller is no longer this pharmacy's owner.
-///
-/// IsPharmacyOwner (backend/pharmacy/permissions.py) denies EVERY method on
-/// OwnerStockViewSet, not just list(), so any call in this screen can come
-/// back 403 the moment an admin unlinks the PharmacyOwner row. Treating that
-/// as an ordinary row error would strand the owner on a dashboard of stale
-/// stock with isPharmacyOwnerNotifier still true and every action failing the
-/// same way. Extracted as a pure predicate so the four call sites agree and
-/// so it can be tested without a device.
 bool isOwnershipRevoked(Object error) =>
     error is ApiException && error.statusCode == 403;
 
-/// True when [error] says this session is over.
-///
-/// ApiClient only lets a 401 reach a caller after it has already tried the
-/// refresh token once and failed, at which point it deletes both tokens
-/// (api_client.dart's _handleResponse). So by the time this returns true there
-/// is no credential left on the device and no request will ever succeed again
-/// -- which is why it cannot be treated as an ordinary row error like the
-/// others here. Left as one, the owner sat on a dashboard of stale stock
-/// tapping a Retry button that could not work, with no logged-out state to tell
-/// them why. Separate from [isOwnershipRevoked] because the destination
-/// differs: a revoked owner is still signed in and goes to /home, an expired
-/// session goes back to the login screen.
 bool isSessionExpired(Object error) =>
     error is ApiException && error.statusCode == 401;
 
-/// Validates the low-stock threshold field. Returns null when valid, else the
-/// message to show under the field.
-///
-/// Blank is allowed and means "leave it as it is" -- on the add dialog the
-/// server applies its own default of 10, and on the edit dialog the field is
-/// pre-filled, so an owner who clears it is not asking for zero. Zero itself is
-/// valid and means "only alert me when it runs out".
 String? validateLowThreshold(String? raw) {
   final text = (raw ?? '').trim();
   if (text.isEmpty) return null;
@@ -94,7 +52,6 @@ String? validateLowThreshold(String? raw) {
   return null;
 }
 
-/// Validates the price field. Returns null when valid, else the message.
 String? validatePrice(String? raw) {
   final text = (raw ?? '').trim();
   if (text.isEmpty) return 'Enter a price.';
@@ -104,9 +61,26 @@ String? validatePrice(String? raw) {
   return null;
 }
 
-/// The pharmacy owner's stock editor -- the only human-facing write path to
-/// PharmacyMedicineStock. Reached from login when the account is linked to a
-/// pharmacy (see routeForRole in login_screen.dart).
+// ─────────────────────────────────────────────
+// Cart item
+// ─────────────────────────────────────────────
+
+class CartItem {
+  final OwnerStock stock;
+  int quantity;
+
+  CartItem({required this.stock, this.quantity = 1});
+
+  double get lineTotal {
+    final price = double.tryParse(stock.price) ?? 0;
+    return price * quantity;
+  }
+}
+
+// ─────────────────────────────────────────────
+// Main Screen
+// ─────────────────────────────────────────────
+
 class OwnerDashboardScreen extends StatefulWidget {
   const OwnerDashboardScreen({super.key});
 
@@ -114,89 +88,123 @@ class OwnerDashboardScreen extends StatefulWidget {
   State<OwnerDashboardScreen> createState() => _OwnerDashboardScreenState();
 }
 
-class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
+class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
   List<OwnerStock> _stock = [];
   bool _loading = true;
   String? _error;
 
-  // The stock ledger behind the "Activity" tab. Loaded separately from _stock
-  // so a failure on one tab never blanks the other -- the stock list is what
-  // the owner actually works in, and it must not disappear because an audit
-  // feed could not be fetched.
   List<StockTransactionEntry> _transactions = [];
   bool _activityLoading = true;
   String? _activityError;
-  // Per-row inline errors, keyed by stock id, so one rejected edit doesn't
-  // replace the whole list with an error screen.
   final Map<int, String> _rowErrors = {};
 
-  // Shown when the network, rather than the server, is the problem. Reused by
-  // every handler so a dropped connection never produces silence.
   static const _offlineMessage =
       'Could not reach the server. Check your connection and try again.';
 
-  // Live low-stock feed for this owner's own pharmacy. The POS sells stock all
-  // day without touching this app, so without the socket the dashboard is only
-  // ever as current as the last pull-to-refresh -- and the one screen that
-  // most needs to know a medicine just ran out was the only one not listening.
   final StockAlertService _alertService = StockAlertService();
   StreamSubscription<StockAlert>? _alertSubscription;
   StreamSubscription<StockTransactionEntry>? _transactionSubscription;
 
+  // POS state
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  String _selectedCategory = 'All';
+  final List<CartItem> _cart = [];
+  bool _selling = false;
+  PharmacyCustomer? _selectedCustomer;
+
+  // Customers tab state
+  List<PharmacyCustomer> _customers = [];
+  bool _customersLoading = true;
+  String? _customersError;
+  final TextEditingController _customerSearchController =
+      TextEditingController();
+  String _customerSearchQuery = '';
+
+  static const Map<String, List<String>> _categoryKeywords = {
+    'All': [],
+    'Antibiotics': ['amoxicillin', 'azithromycin', 'ciprofloxacin', 'doxycycline'],
+    'Pain / Fever': ['ibuprofen', 'paracetamol', 'diclofenac', 'nimesulide', 'aspirin'],
+    'Cardiac': ['amlodipine', 'atenolol', 'losartan', 'atorvastatin', 'clopidogrel'],
+    'Diabetes': ['metformin', 'glimepiride', 'insulin', 'sitagliptin'],
+    'Gastric': ['omeprazole', 'pantoprazole', 'ranitidine', 'domperidone'],
+    'Allergy': ['cetirizine', 'loratadine', 'fexofenadine', 'montelukast'],
+    'Other': [],
+  };
+
+  void _onTabChanged() {
+    // Intentionally empty: FAB visibility is driven by AnimatedBuilder
+    // on _tabController so we never setState during tab animation/teardown.
+  }
+
+  void _onSearchChanged() {
+    if (!mounted) return;
+    setState(() => _searchQuery = _searchController.text.trim().toLowerCase());
+  }
+
+  void _onCustomerSearchChanged() {
+    if (!mounted) return;
+    setState(() =>
+        _customerSearchQuery = _customerSearchController.text.trim().toLowerCase());
+  }
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 5, vsync: this);
+    _tabController.addListener(_onTabChanged);
     _load();
     _loadTransactions();
+    _loadCustomers();
     _subscribeToAlerts();
+    _searchController.addListener(_onSearchChanged);
+    _customerSearchController.addListener(_onCustomerSearchChanged);
   }
 
   @override
   void dispose() {
+    // Remove listeners BEFORE disposing controllers to avoid
+    // "_dependents.isEmpty is not true" during teardown.
+    _tabController.removeListener(_onTabChanged);
+    _searchController.removeListener(_onSearchChanged);
+    _customerSearchController.removeListener(_onCustomerSearchChanged);
     _alertSubscription?.cancel();
+    _alertSubscription = null;
     _transactionSubscription?.cancel();
+    _transactionSubscription = null;
     _alertService.disconnect();
+    _searchController.dispose();
+    _customerSearchController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
-  /// Opens the socket for the pharmacy this account owns. Silent on failure:
-  /// live updates are an enhancement over the list that _load() already
-  /// fetched, so a socket that will not open must not produce an error screen
-  /// over working data.
+  // ─────────────────────────────────────────────
+  // WebSocket + Loading
+  // ─────────────────────────────────────────────
+
   Future<void> _subscribeToAlerts() async {
     final pharmacyId = AppStateManager.instance.ownedPharmacyIdNotifier.value;
-    // Null when an older backend sent no `pharmacy` on the login response, or
-    // when a biometric snapshot predates that field.
     if (pharmacyId == null) return;
 
     try {
       final stream = await _alertService.connect(pharmacyId);
       if (!mounted) {
-        // Disposed during connect(); nothing would ever close this socket.
         _alertService.disconnect();
         return;
       }
       _alertSubscription = stream.listen(_onStockAlert);
-      // Read after connect(), which creates the controller this exposes.
-      // Carries every stock movement, not just threshold crossings, so the
-      // Activity tab updates on each sale as it commits.
       _transactionSubscription =
           _alertService.transactions.listen(_onStockTransaction);
-    } catch (_) {
-      // No socket, no live updates. The dashboard still works.
-    }
+    } catch (_) {}
   }
 
-  /// Prepends a movement pushed over the socket.
-  ///
-  /// Newest-first, matching StockTransaction.Meta.ordering, so a live row
-  /// lands exactly where the same row would appear after a refresh.
   void _onStockTransaction(StockTransactionEntry entry) {
     if (!mounted) return;
     setState(() {
-      // The server can deliver a row this screen already has: _loadTransactions
-      // runs on a socket reconnect, and it fetches rows the socket may also
-      // push. Keying on id keeps the feed from showing the same sale twice.
       if (_transactions.any((t) => t.id == entry.id)) return;
       _transactions.insert(0, entry);
     });
@@ -205,8 +213,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   void _onStockAlert(StockAlert alert) {
     if (!mounted) return;
     setState(() {
-      // The alert carries the server's committed quantity, so trust it over
-      // the row we are holding -- that is the entire point of the socket.
       final index = _stock.indexWhere((s) => s.medicineId == alert.medicineId);
       if (index != -1) {
         final row = _stock[index];
@@ -232,49 +238,27 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     );
   }
 
-  /// Demote to a plain consumer and leave. Called from every path that can
-  /// see a 403 -- see isOwnershipRevoked. Callers MUST have checked `mounted`
-  /// immediately before, because this touches State.context, and callers
-  /// inside a dialog MUST have dismissed the dialog first, or the
-  /// pushReplacement lands under a route that is still on top.
   void _leaveAsRevokedOwner() {
     AppStateManager.instance.clearOwnerRole();
     Navigator.pushReplacementNamed(context, '/home');
   }
 
-  /// Drop back to the login screen because the session is gone -- see
-  /// [isSessionExpired]. Same caller contract as [_leaveAsRevokedOwner]:
-  /// `mounted` checked immediately before, any dialog dismissed first.
-  ///
-  /// The role and the logged-in flag are both cleared, because ApiClient has
-  /// already discarded the tokens: leaving isLoggedIn true would leave the app
-  /// claiming a session that no longer exists anywhere. The stack goes with it,
-  /// for the same reason logout clears it -- nothing behind this screen is
-  /// usable without a token.
   void _leaveAsSignedOut() {
     AppStateManager.instance.clearOwnerRole();
     AppStateManager.instance.setLoggedIn(false);
     Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
   }
 
-  /// Swaps a server response into the list in place. Must be called inside a
-  /// setState. No-ops if the row has since left the list.
   void _replaceRow(OwnerStock updated) {
     final index = _stock.indexWhere((s) => s.id == updated.id);
     if (index != -1) _stock[index] = updated;
   }
 
   Future<void> _load() async {
-    // Guarded like every other setState in this file: _load is called from
-    // initState, from Retry, from pull-to-refresh and from _addMedicine after
-    // an await, and the last of those can outlive the screen.
     if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
-      // Row errors describe the state we are about to replace. Leaving them
-      // would keep a stale message on a row whose real quantity and price the
-      // refresh just fetched.
       _rowErrors.clear();
     });
     try {
@@ -286,14 +270,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       });
     } on ApiException catch (e) {
       if (!mounted) return;
-      // 401 means the refresh already failed and the tokens are gone; there is
-      // nothing to retry with, so send them to login instead of an error card.
       if (isSessionExpired(e)) {
         _leaveAsSignedOut();
         return;
       }
-      // 403 means the owner link was removed while this session was open.
-      // Drop back to the normal app rather than looping on an error.
       if (isOwnershipRevoked(e)) {
         _leaveAsRevokedOwner();
         return;
@@ -303,15 +283,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         _loading = false;
       });
     } on StateError {
-      // parseStockPayload refusing a truncated page. Retry cannot fix it, so
-      // saying "check your connection" sends the owner to look at the one
-      // thing that is not wrong -- and the stock list they are being shown is
-      // incomplete, which is the part they need to know.
       if (!mounted) return;
       setState(() {
-        _error = 'Your stock list is too long for this version of the app to '
-            'show safely. Some medicines would be missing, so nothing is '
-            'shown. Please update the app.';
+        _error =
+            'Your stock list is too long for this version of the app to show safely. Please update the app.';
         _loading = false;
       });
     } catch (_) {
@@ -323,12 +298,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     }
   }
 
-  /// Fetches the stock ledger for the Activity tab.
-  ///
-  /// Deliberately never sets [_error]: that field drives the whole-screen
-  /// error state for the stock list. A failure here is confined to
-  /// [_activityError] so the owner keeps working in a dashboard whose audit
-  /// tab happens to be unavailable.
   Future<void> _loadTransactions() async {
     if (!mounted) return;
     setState(() {
@@ -344,9 +313,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       });
     } on ApiException catch (e) {
       if (!mounted) return;
-      // Session and ownership handling matches _load(): these are conditions
-      // of the whole session, not of this one request, so they still route
-      // away from the screen rather than showing a per-tab error.
       if (isSessionExpired(e)) {
         _leaveAsSignedOut();
         return;
@@ -368,18 +334,902 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     }
   }
 
+  // ─────────────────────────────────────────────
+  // Customers
+  // ─────────────────────────────────────────────
+
+  Future<void> _loadCustomers() async {
+    if (!mounted) return;
+    setState(() {
+      _customersLoading = true;
+      _customersError = null;
+    });
+    try {
+      final list = await OwnerCustomerService.instance.fetchCustomers();
+      if (!mounted) return;
+      setState(() {
+        _customers = list;
+        _customersLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (isSessionExpired(e)) {
+        _leaveAsSignedOut();
+        return;
+      }
+      if (isOwnershipRevoked(e)) {
+        _leaveAsRevokedOwner();
+        return;
+      }
+      setState(() {
+        _customersError = e.message;
+        _customersLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _customersError = _offlineMessage;
+        _customersLoading = false;
+      });
+    }
+  }
+
+  List<PharmacyCustomer> get _filteredCustomers {
+    if (_customerSearchQuery.isEmpty) return _customers;
+    return _customers.where((c) {
+      return c.name.toLowerCase().contains(_customerSearchQuery) ||
+          c.phone.contains(_customerSearchQuery);
+    }).toList();
+  }
+
+  Future<PharmacyCustomer?> _showCustomerForm({PharmacyCustomer? existing}) async {
+    final nameController =
+        TextEditingController(text: existing?.name ?? '');
+    final phoneController =
+        TextEditingController(text: existing?.phone ?? '');
+    final membershipIdController =
+        TextEditingController(text: existing?.membershipId ?? '');
+    final notesController =
+        TextEditingController(text: existing?.notes ?? '');
+    String membership = existing?.membership ?? 'NONE';
+    // Unique key per dialog open — avoids Duplicate GlobalKeys
+    final formKey = GlobalKey<FormState>(debugLabel: 'customer_form_${existing?.id ?? 'new'}');
+
+    try {
+      final result = await showDialog<PharmacyCustomer>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              return AlertDialog(
+                title: Text(existing == null ? 'New Customer' : 'Edit Customer'),
+                content: SizedBox(
+                  width: 360,
+                  child: SingleChildScrollView(
+                    child: Form(
+                      key: formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextFormField(
+                            controller: nameController,
+                            autofocus: true,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: const InputDecoration(
+                              labelText: 'Customer Name *',
+                              prefixIcon: Icon(Icons.person_outline, size: 20),
+                              isDense: true,
+                            ),
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) {
+                                return 'Name is required';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: phoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: const InputDecoration(
+                              labelText: 'Phone Number *',
+                              prefixIcon: Icon(Icons.phone_outlined, size: 20),
+                              hintText: '98XXXXXXXX',
+                              isDense: true,
+                            ),
+                            validator: (v) {
+                              final text = (v ?? '').trim();
+                              if (text.isEmpty) return 'Phone is required';
+                              if (text.length < 10) {
+                                return 'Enter a valid phone number';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          DropdownButtonFormField<String>(
+                            value: membership,
+                            decoration: const InputDecoration(
+                              labelText: 'Membership',
+                              prefixIcon: Icon(Icons.card_membership, size: 20),
+                              isDense: true,
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'NONE', child: Text('None')),
+                              DropdownMenuItem(
+                                  value: 'SILVER', child: Text('Silver')),
+                              DropdownMenuItem(
+                                  value: 'GOLD', child: Text('Gold')),
+                              DropdownMenuItem(
+                                  value: 'PLATINUM', child: Text('Platinum')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) {
+                                setDialogState(() => membership = v);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: membershipIdController,
+                            decoration: const InputDecoration(
+                              labelText: 'Membership ID (optional)',
+                              prefixIcon: Icon(Icons.badge_outlined, size: 20),
+                              isDense: true,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: notesController,
+                            maxLines: 2,
+                            decoration: const InputDecoration(
+                              labelText: 'Notes (optional)',
+                              prefixIcon: Icon(Icons.notes, size: 20),
+                              isDense: true,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      if (!(formKey.currentState?.validate() ?? false)) return;
+                      final name = nameController.text.trim();
+                      final phone = phoneController.text.trim();
+                      final mid = membershipIdController.text.trim();
+                      final notes = notesController.text.trim();
+                      try {
+                        PharmacyCustomer saved;
+                        if (existing?.id != null) {
+                          saved = await OwnerCustomerService.instance
+                              .updateCustomer(
+                            existing!.id!,
+                            name: name,
+                            phone: phone,
+                            membership: membership,
+                            membershipId: mid,
+                            notes: notes,
+                          );
+                        } else {
+                          saved = await OwnerCustomerService.instance
+                              .createCustomer(
+                            name: name,
+                            phone: phone,
+                            membership: membership,
+                            membershipId: mid,
+                            notes: notes,
+                          );
+                        }
+                        if (ctx.mounted) Navigator.pop(ctx, saved);
+                      } catch (e) {
+                        if (!ctx.mounted) return;
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text(e is ApiException
+                                ? e.message
+                                : 'Could not save customer'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
+                    child: Text(existing == null ? 'Create' : 'Save'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      return result;
+    } finally {
+      nameController.dispose();
+      phoneController.dispose();
+      membershipIdController.dispose();
+      notesController.dispose();
+    }
+  }
+
+  Future<void> _createOrEditCustomer({PharmacyCustomer? existing}) async {
+    final saved = await _showCustomerForm(existing: existing);
+    if (saved == null || !mounted) return;
+    setState(() {
+      final idx = _customers.indexWhere((c) =>
+          (saved.id != null && c.id == saved.id) || c.phone == saved.phone);
+      if (idx >= 0) {
+        _customers[idx] = saved;
+      } else {
+        _customers.insert(0, saved);
+      }
+      // Keep selection in sync if this was the selected customer
+      if (_selectedCustomer != null &&
+          ((_selectedCustomer!.id != null &&
+                  _selectedCustomer!.id == saved.id) ||
+              _selectedCustomer!.phone == saved.phone)) {
+        _selectedCustomer = saved;
+      }
+    });
+  }
+
+  Future<void> _deleteCustomer(PharmacyCustomer customer) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete customer?'),
+        content: Text('Remove ${customer.name} (${customer.phone})?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(
+                foregroundColor: Theme.of(ctx).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || customer.id == null || !mounted) return;
+    await OwnerCustomerService.instance.deleteCustomer(customer.id!);
+    if (!mounted) return;
+    setState(() {
+      _customers.removeWhere((c) => c.id == customer.id);
+      if (_selectedCustomer?.id == customer.id) {
+        _selectedCustomer = null;
+      }
+    });
+  }
+
+  Future<void> _pickCustomerForBilling() async {
+    final searchController = TextEditingController();
+    List<PharmacyCustomer> results = List.from(_customers);
+
+    final picked = await showDialog<PharmacyCustomer>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Select Customer'),
+              content: SizedBox(
+                width: 360,
+                height: 420,
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: searchController,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Search name or phone...',
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        isDense: true,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onChanged: (v) {
+                        final q = v.trim().toLowerCase();
+                        setDialogState(() {
+                          results = _customers.where((c) {
+                            return c.name.toLowerCase().contains(q) ||
+                                c.phone.contains(q);
+                          }).toList();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: results.isEmpty
+                          ? const Center(
+                              child: Text('No customers found',
+                                  style: TextStyle(color: Colors.grey)))
+                          : ListView.builder(
+                              itemCount: results.length,
+                              itemBuilder: (_, i) {
+                                final c = results[i];
+                                return ListTile(
+                                  dense: true,
+                                  leading: CircleAvatar(
+                                    radius: 16,
+                                    child: Text(
+                                      c.name.isNotEmpty
+                                          ? c.name[0].toUpperCase()
+                                          : '?',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ),
+                                  title: Text(c.name,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14)),
+                                  subtitle: Text(
+                                    c.hasMembership
+                                        ? '${c.phone} · ${c.membershipLabel}'
+                                        : c.phone,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  trailing: c.hasMembership
+                                      ? Chip(
+                                          label: Text(c.membershipLabel,
+                                              style: const TextStyle(
+                                                  fontSize: 11)),
+                                          visualDensity: VisualDensity.compact,
+                                          padding: EdgeInsets.zero,
+                                        )
+                                      : null,
+                                  onTap: () => Navigator.pop(ctx, c),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    final created = await _showCustomerForm();
+                    if (created != null && mounted) {
+                      setState(() {
+                        _customers.insert(0, created);
+                        _selectedCustomer = created;
+                      });
+                    }
+                  },
+                  child: const Text('+ New'),
+                ),
+                if (_selectedCustomer != null)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      setState(() => _selectedCustomer = null);
+                    },
+                    child: const Text('Clear'),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    searchController.dispose();
+    if (picked != null && mounted) {
+      setState(() => _selectedCustomer = picked);
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // POS Logic
+  // ─────────────────────────────────────────────
+
+  List<OwnerStock> get _filteredStock {
+    return _stock.where((item) {
+      if (_searchQuery.isNotEmpty &&
+          !item.medicineName.toLowerCase().contains(_searchQuery)) {
+        return false;
+      }
+
+      if (_selectedCategory == 'All') return true;
+
+      if (_selectedCategory == 'Other') {
+        for (final entry in _categoryKeywords.entries) {
+          if (entry.key == 'All' || entry.key == 'Other') continue;
+          for (final keyword in entry.value) {
+            if (item.medicineName.toLowerCase().contains(keyword)) return false;
+          }
+        }
+        return true;
+      }
+
+      final keywords = _categoryKeywords[_selectedCategory] ?? [];
+      for (final keyword in keywords) {
+        if (item.medicineName.toLowerCase().contains(keyword)) return true;
+      }
+      return false;
+    }).toList();
+  }
+
+  void _addToCart(OwnerStock stock) {
+    if (stock.quantity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${stock.medicineName} is out of stock')),
+      );
+      return;
+    }
+
+    setState(() {
+      final existing = _cart.indexWhere((c) => c.stock.id == stock.id);
+      if (existing >= 0) {
+        if (_cart[existing].quantity < stock.quantity) {
+          _cart[existing].quantity++;
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Cannot add more than available stock')),
+          );
+        }
+      } else {
+        _cart.add(CartItem(stock: stock));
+      }
+    });
+  }
+
+  void _changeCartQty(CartItem item, int delta) {
+    setState(() {
+      item.quantity += delta;
+      if (item.quantity <= 0) {
+        _cart.remove(item);
+      } else if (item.quantity > item.stock.quantity) {
+        item.quantity = item.stock.quantity;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Max available stock reached')),
+        );
+      }
+    });
+  }
+
+  double get _cartTotal => _cart.fold(0, (sum, item) => sum + item.lineTotal);
+  int get _cartItemCount => _cart.fold(0, (sum, item) => sum + item.quantity);
+
+  Future<void> _completeSale() async {
+    if (_cart.isEmpty || _selling) return;
+
+    // Prefer pre-selected customer; otherwise ask / create quickly
+    PharmacyCustomer? customer = _selectedCustomer;
+    if (customer == null) {
+      final created = await _showCustomerForm();
+      if (created == null || !mounted) return;
+      customer = created;
+      setState(() {
+        final exists = _customers.any((c) =>
+            (created.id != null && c.id == created.id) ||
+            c.phone == created.phone);
+        if (!exists) _customers.insert(0, created);
+        _selectedCustomer = created;
+      });
+    }
+
+    final saleCustomer = customer; // non-null after checks above
+    setState(() => _selling = true);
+
+    try {
+      for (final item in List<CartItem>.from(_cart)) {
+        final newQty = item.stock.quantity - item.quantity;
+        final updated =
+            await OwnerStockService.instance.setQuantity(item.stock.id, newQty);
+        if (!mounted) return;
+        setState(() => _replaceRow(updated));
+      }
+
+      final billItems = List<CartItem>.from(_cart);
+      final total = _cartTotal;
+      final billTime = DateTime.now();
+      final billNo =
+          'INV-${billTime.year}${billTime.month.toString().padLeft(2, '0')}${billTime.day.toString().padLeft(2, '0')}-${billTime.millisecondsSinceEpoch % 100000}';
+
+      setState(() {
+        _cart.clear();
+        _selling = false;
+      });
+
+      // Persist sale with customer details for PDF / analytics reports
+      final pharmacyName =
+          AppStateManager.instance.ownedPharmacyNameNotifier.value;
+      final profile = AppStateManager.instance.userProfileNotifier.value;
+      final cashierName = [
+        if ((profile.fullName).trim().isNotEmpty) profile.fullName.trim(),
+      ].join();
+      await OwnerSalesLog.instance.add(SaleRecord(
+        billNo: billNo,
+        time: billTime,
+        pharmacyName: pharmacyName,
+        customerName: saleCustomer.name,
+        customerPhone: saleCustomer.phone,
+        membership: saleCustomer.membership,
+        membershipId: saleCustomer.membershipId,
+        lines: billItems
+            .map((item) => SaleLine(
+                  medicineName: item.stock.medicineName,
+                  quantity: item.quantity,
+                  unitPrice: double.tryParse(item.stock.price) ?? 0,
+                  lineTotal: item.lineTotal,
+                ))
+            .toList(),
+        total: total,
+        cashier: cashierName,
+      ));
+
+      if (!mounted) return;
+      await _showBillDialog(
+        items: billItems,
+        total: total,
+        time: billTime,
+        billNo: billNo,
+        customer: saleCustomer,
+      );
+
+      _loadTransactions();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _selling = false);
+      if (isSessionExpired(e)) {
+        _leaveAsSignedOut();
+        return;
+      }
+      if (isOwnershipRevoked(e)) {
+        _leaveAsRevokedOwner();
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _selling = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sale failed. Check connection.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  String _formatBillText({
+    required String pharmacyName,
+    required String billNo,
+    required DateTime time,
+    required PharmacyCustomer customer,
+    required List<CartItem> items,
+    required double total,
+  }) {
+    final buffer = StringBuffer();
+    buffer.writeln('================================');
+    buffer.writeln(pharmacyName.toUpperCase());
+    buffer.writeln('================================');
+    buffer.writeln('Bill No : $billNo');
+    buffer.writeln(
+        'Date    : ${time.day.toString().padLeft(2, '0')}/${time.month.toString().padLeft(2, '0')}/${time.year}  ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}');
+    buffer.writeln('--------------------------------');
+    buffer.writeln('Customer: ${customer.name}');
+    buffer.writeln('Phone   : ${customer.phone}');
+    if (customer.hasMembership) {
+      buffer.writeln(
+          'Member  : ${customer.membershipLabel}${customer.membershipId.isNotEmpty ? ' (${customer.membershipId})' : ''}');
+    }
+    buffer.writeln('--------------------------------');
+    buffer.writeln('${'Medicine'.padRight(18)} Qty   Amount');
+    buffer.writeln('--------------------------------');
+    for (final item in items) {
+      final name = item.stock.medicineName.length > 18
+          ? '${item.stock.medicineName.substring(0, 16)}..'
+          : item.stock.medicineName.padRight(18);
+      final qty = 'x${item.quantity}'.padLeft(4);
+      final amt = item.lineTotal.toStringAsFixed(2).padLeft(8);
+      buffer.writeln('$name$qty $amt');
+      final unit = double.tryParse(item.stock.price) ?? 0;
+      buffer.writeln('  @ Rs ${unit.toStringAsFixed(2)} each');
+    }
+    buffer.writeln('--------------------------------');
+    buffer.writeln('TOTAL               Rs ${total.toStringAsFixed(2)}');
+    buffer.writeln('================================');
+    buffer.writeln('  Thank you for your purchase!');
+    buffer.writeln('     Get well soon.');
+    buffer.writeln('================================');
+    return buffer.toString();
+  }
+
+  Future<void> _showBillDialog({
+    required List<CartItem> items,
+    required double total,
+    required DateTime time,
+    required String billNo,
+    required PharmacyCustomer customer,
+  }) async {
+    final pharmacyName =
+        AppStateManager.instance.ownedPharmacyNameNotifier.value;
+    final displayName = pharmacyName.isEmpty ? 'Pharmacy' : pharmacyName;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Colors.grey.shade400, width: 1.5),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          displayName.toUpperCase(),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'TAX INVOICE / BILL',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _billMetaRow('Bill No', billNo),
+                  _billMetaRow(
+                    'Date',
+                    '${time.day.toString().padLeft(2, '0')}/${time.month.toString().padLeft(2, '0')}/${time.year}  ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
+                  ),
+                  const Divider(height: 16),
+                  _billMetaRow('Customer', customer.name),
+                  _billMetaRow('Phone', customer.phone),
+                  if (customer.hasMembership)
+                    _billMetaRow(
+                      'Membership',
+                      '${customer.membershipLabel}${customer.membershipId.isNotEmpty ? ' · ${customer.membershipId}' : ''}',
+                    ),
+                  const Divider(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(
+                        flex: 5,
+                        child: Text('Medicine',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 12)),
+                      ),
+                      const SizedBox(
+                        width: 36,
+                        child: Text('Qty',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 12)),
+                      ),
+                      const SizedBox(
+                        width: 72,
+                        child: Text('Amount',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  ...items.map((item) {
+                    final unit = double.tryParse(item.stock.price) ?? 0;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                flex: 5,
+                                child: Text(
+                                  item.stock.medicineName,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 36,
+                                child: Text(
+                                  '${item.quantity}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 72,
+                                child: Text(
+                                  item.lineTotal.toStringAsFixed(2),
+                                  textAlign: TextAlign.right,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '  @ Rs ${unit.toStringAsFixed(2)}',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const Divider(height: 16, thickness: 1.2),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('TOTAL',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w800, fontSize: 15)),
+                      Text(
+                        'Rs ${total.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 15),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Thank you for your purchase!\nGet well soon.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontStyle: FontStyle.italic,
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                final text = _formatBillText(
+                  pharmacyName: displayName,
+                  billNo: billNo,
+                  time: time,
+                  customer: customer,
+                  items: items,
+                  total: total,
+                );
+                Clipboard.setData(ClipboardData(text: text));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Bill copied to clipboard')),
+                );
+              },
+              child: const Text('Copy text'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                final profile =
+                    AppStateManager.instance.userProfileNotifier.value;
+                final cashier = profile.fullName.trim().isNotEmpty
+                    ? profile.fullName.trim()
+                    : 'Cashier';
+                final member = customer.hasMembership
+                    ? '${customer.membershipLabel}${customer.membershipId.isNotEmpty ? ' (${customer.membershipId})' : ''}'
+                    : '';
+                try {
+                  await SalesReportPdf.instance.shareTaxInvoice(
+                    pharmacyName: displayName,
+                    address: 'Kathmandu, Nepal',
+                    vatNumber: '',
+                    billNo: billNo,
+                    time: time,
+                    cashier: cashier,
+                    customerName: customer.name,
+                    customerPhone: customer.phone,
+                    membership: member,
+                    lines: items
+                        .map((item) => SaleLine(
+                              medicineName: item.stock.medicineName,
+                              quantity: item.quantity,
+                              unitPrice:
+                                  double.tryParse(item.stock.price) ?? 0,
+                              lineTotal: item.lineTotal,
+                            ))
+                        .toList(),
+                    discountPercent: 0,
+                    vatPercent: 13,
+                  );
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('PDF failed: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              icon: const Icon(Icons.picture_as_pdf, size: 18),
+              label: const Text('PDF Invoice'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Done'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _billMetaRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1.5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 88,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // Edit Row (full original logic)
+  // ─────────────────────────────────────────────
+
   Future<void> _editRow(OwnerStock row) async {
-    final formKey = GlobalKey<FormState>();
+    final formKey = GlobalKey<FormState>(debugLabel: 'edit_stock_${row.id}');
     final quantityController =
         TextEditingController(text: row.quantity.toString());
     final priceController = TextEditingController(text: row.price);
     final thresholdController =
         TextEditingController(text: row.lowThreshold.toString());
 
-    // Everything that reads these controllers lives inside the try, and the
-    // finally runs only after `await showDialog` has completed -- disposing
-    // any earlier would blow up in the dialog's own teardown, which still
-    // touches the controllers its TextFormFields are attached to.
     try {
       final saved = await showDialog<bool>(
         context: context,
@@ -426,8 +1276,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              // Refuses to close on invalid input rather than closing and
-              // quietly doing nothing.
               onPressed: () {
                 if (formKey.currentState?.validate() ?? false) {
                   Navigator.pop(ctx, true);
@@ -443,37 +1291,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
 
       final quantity = int.tryParse(quantityController.text.trim());
       final price = priceController.text.trim();
-      // Null when left blank, which means "unchanged" -- see
-      // validateLowThreshold. tryParse is safe here for the same reason it is
-      // for quantity: the validator has already refused anything unparseable.
       final threshold = int.tryParse(thresholdController.text.trim());
       if (quantity == null) {
-        // Unreachable while the validator above is in place; kept so a future
-        // edit to the dialog cannot reintroduce a silent no-op.
         setState(() => _rowErrors[row.id] = 'Quantity must be a whole number.');
         return;
       }
 
       setState(() => _rowErrors.remove(row.id));
       try {
-        // Two calls rather than one, because a quantity change goes through
-        // the ledger and a price change doesn't -- keeping them separate means
-        // a price correction never writes a phantom stock adjustment.
-        //
-        // Each response is committed to _stock AS IT ARRIVES, never batched to
-        // the end. If setQuantity succeeds and setPrice then fails on a
-        // dropped connection, the server has already recorded the new quantity
-        // and written an ADJUSTED StockTransaction for it. Holding the old row
-        // on screen would tell the owner nothing was written, and -- worse --
-        // the retry would compare the new quantity against the stale row,
-        // decide it still differs, and fire setQuantity a SECOND time, adding
-        // a delta-0 ADJUSTED row to the ledger this feature exists to keep
-        // honest. Committing per call keeps the displayed row exactly as
-        // server-authoritative as the calls that actually returned.
-        // Threshold before quantity, matching the order owner_views.py applies
-        // them in: the alert that a quantity drop may raise is judged against
-        // whatever threshold the row holds at that moment, so sending the new
-        // threshold second would have the server test the old one.
         if (threshold != null && threshold != row.lowThreshold) {
           final updated = await OwnerStockService.instance
               .setLowThreshold(row.id, threshold);
@@ -494,9 +1319,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         }
       } on ApiException catch (e) {
         if (!mounted) return;
-        // Both of these leave the screen; the dialog is already closed by this
-        // point -- this catch sits after the `await showDialog` -- so
-        // State.context is on top.
         if (isSessionExpired(e)) {
           _leaveAsSignedOut();
           return;
@@ -505,12 +1327,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           _leaveAsRevokedOwner();
           return;
         }
-        // Leave whatever did commit on screen; only the failed call is undone.
         setState(() => _rowErrors[row.id] = e.message);
       } catch (_) {
-        // A dropped connection throws SocketException, not ApiException.
-        // Without this the failure escapes as an unhandled async error and
-        // the row just never updates.
         if (!mounted) return;
         setState(() => _rowErrors[row.id] = _offlineMessage);
       }
@@ -521,85 +1339,22 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     }
   }
 
-  Future<void> _removeRow(OwnerStock row) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove medicine'),
-        content: Text(
-          'Remove ${row.medicineName} from your stock list? '
-          'This says your pharmacy no longer carries it.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-
-    try {
-      await OwnerStockService.instance.removeStock(row.id);
-      if (!mounted) return;
-      setState(() {
-        _stock.removeWhere((s) => s.id == row.id);
-        _rowErrors.remove(row.id);
-      });
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      if (isSessionExpired(e)) {
-        _leaveAsSignedOut();
-        return;
-      }
-      if (isOwnershipRevoked(e)) {
-        _leaveAsRevokedOwner();
-        return;
-      }
-      _setRemoveError(row.id, e.message);
-    } catch (_) {
-      if (!mounted) return;
-      _setRemoveError(row.id, _offlineMessage);
-    }
-  }
-
-  /// A remove failure only has somewhere to show itself if the row is still
-  /// in the list. Double-tap Remove and the second DELETE 404s against a row
-  /// the first one already removed; writing _rowErrors[row.id] then would
-  /// leave an entry no ListTile ever reads -- invisible to the owner and
-  /// resurrected if that id ever came back. Drop it instead.
-  void _setRemoveError(int rowId, String message) {
-    if (!_stock.any((s) => s.id == rowId)) return;
-    setState(() => _rowErrors[rowId] = message);
-  }
+  // ─────────────────────────────────────────────
+  // Add Medicine (full original logic)
+  // ─────────────────────────────────────────────
 
   Future<void> _addMedicine() async {
-    final formKey = GlobalKey<FormState>();
+    final formKey = GlobalKey<FormState>(debugLabel: 'add_medicine_form');
     final searchController = TextEditingController();
     final quantityController = TextEditingController(text: '0');
     final priceController = TextEditingController(text: '0.00');
-    // Left empty on purpose: blank sends no low_threshold at all and lets the
-    // server's default stand, rather than this screen hard-coding a copy of it.
     final thresholdController = TextEditingController();
     List<Map<String, dynamic>> results = [];
     int? selectedId;
     String? dialogError;
     bool searching = false;
     bool submitting = false;
-    // Set by submit() when the POST comes back 403. The demote-and-leave has
-    // to happen from out here, after `await showDialog` returns: navigating
-    // from inside the dialog would push /home underneath a route that is
-    // still on top, and State.mounted (not ctx.mounted) is the right guard
-    // for the State.context that pushReplacementNamed needs.
     bool ownershipRevoked = false;
-    // Same deferral, for the same reason: an expired session has to leave from
-    // out here, after the dialog is gone.
     bool sessionExpired = false;
 
     try {
@@ -619,22 +1374,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                 setDialogState(() {
                   results = found;
                   searching = false;
-                  // The old selection may not be in the new result set.
                   if (!found.any((m) => m['id'] == selectedId)) selectedId = null;
                 });
               } catch (e) {
-                // No isOwnershipRevoked branch here, unlike every other
-                // handler in this file: searchMedicines hits /medicines/,
-                // which is a ReadOnlyModelViewSet with
-                // permission_classes = [AllowAny] (pharmacy/views.py:15-20)
-                // and is called without auth, so IsPharmacyOwner never runs
-                // on it and a 403 is not reachable. A 403 from an unrelated
-                // future cause should stay an in-dialog message, not eject
-                // the owner from a dashboard whose own API still works.
-                //
-                // Deliberately not `on ApiException` only -- a search run with
-                // no connection would otherwise leave the dialog spinning
-                // with no explanation.
                 if (!ctx.mounted) return;
                 setDialogState(() {
                   searching = false;
@@ -647,7 +1389,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               if (!(formKey.currentState?.validate() ?? false)) return;
               final quantity = int.tryParse(quantityController.text.trim());
               if (quantity == null) {
-                setDialogState(() => dialogError = 'Quantity must be a whole number.');
+                setDialogState(
+                    () => dialogError = 'Quantity must be a whole number.');
                 return;
               }
               setDialogState(() {
@@ -659,15 +1402,13 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   medicineId: selectedId!,
                   quantity: quantity,
                   price: priceController.text.trim(),
-                  lowThreshold:
-                      int.tryParse(thresholdController.text.trim()),
+                  lowThreshold: int.tryParse(thresholdController.text.trim()),
                 );
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx, true);
               } catch (e) {
                 if (!ctx.mounted) return;
                 if (isSessionExpired(e)) {
-                  // Close the dialog and let the caller navigate.
                   sessionExpired = true;
                   Navigator.pop(ctx, false);
                   return;
@@ -710,34 +1451,29 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                               ? const Center(child: CircularProgressIndicator())
                               : results.isEmpty
                                   ? const Center(
-                                      child: Text('No medicines found yet.'),
-                                    )
-                                  // RadioGroup rather than the RadioListTile
-                                  // groupValue/onChanged pair, which is
-                                  // deprecated as of Flutter 3.32.
-                                  : RadioGroup<int>(
-                                      groupValue: selectedId,
-                                      onChanged: (value) =>
-                                          setDialogState(() => selectedId = value),
-                                      // .builder, not a mapped children list:
-                                      // only the visible rows get built.
-                                      child: ListView.builder(
-                                        itemCount: results.length,
-                                        itemBuilder: (context, index) {
-                                          final medicine = results[index];
-                                          return RadioListTile<int>(
-                                            value: medicine['id'] as int,
-                                            title: Text('${medicine['name']}'),
-                                          );
-                                        },
-                                      ),
+                                      child: Text('No medicines found yet.'))
+                                  : ListView.builder(
+                                      itemCount: results.length,
+                                      itemBuilder: (context, index) {
+                                        final medicine = results[index];
+                                        final id = medicine['id'] as int;
+                                        return RadioListTile<int>(
+                                          value: id,
+                                          groupValue: selectedId,
+                                          title: Text('${medicine['name']}'),
+                                          dense: true,
+                                          onChanged: (value) => setDialogState(
+                                              () => selectedId = value),
+                                        );
+                                      },
                                     ),
                         ),
                         TextFormField(
                           controller: quantityController,
                           keyboardType: TextInputType.number,
                           validator: validateQuantity,
-                          decoration: const InputDecoration(labelText: 'Quantity'),
+                          decoration:
+                              const InputDecoration(labelText: 'Quantity'),
                         ),
                         TextFormField(
                           controller: priceController,
@@ -811,185 +1547,184 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         content: const Text('Are you sure you want to logout?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(
-              foregroundColor: Theme.of(ctx).colorScheme.error,
-            ),
+                foregroundColor: Theme.of(ctx).colorScheme.error),
             child: const Text('Logout'),
           ),
         ],
       ),
     );
-
-    if (confirmed != true || !mounted) return;
-    await _logout();
+    if (confirmed == true && mounted) await _logout();
   }
 
-  /// Mirrors the drawer logout in home_screen.dart. Owners never enter
-  /// AppShell -- login sends them here with pushReplacementNamed -- so without
-  /// this handler clearOwnerRole() is unreachable for every owner account.
-  ///
-  /// THE ORDER BELOW IS LOAD-BEARING. profileToSnapshot() reads
-  /// isPharmacyOwnerNotifier / ownedPharmacyId / ownedPharmacyName straight off
-  /// AppStateManager (state.dart:347-349), so the biometric snapshot has to be
-  /// written BEFORE clearOwnerRole() wipes them. Clearing first would persist a
-  /// snapshot saying isPharmacyOwner: false, and the owner's next fingerprint
-  /// login would restore them as a plain consumer -- permanently, because the
-  /// bad snapshot then survives every subsequent logout.
   Future<void> _logout() async {
     final biometricOn = await BiometricService.instance.isEnabled;
-
     if (biometricOn) {
       final p = AppStateManager.instance.userProfileNotifier.value;
       await BiometricService.instance.saveUserSnapshot(profileToSnapshot(p));
     }
-
     await AuthService.instance.logout(keepBiometricSession: biometricOn);
-
     AppStateManager.instance.clearOwnerRole();
     AppStateManager.instance.setLoggedIn(false);
-    if (!biometricOn) {
-      AppStateManager.instance.resetProfile();
-    }
-
+    if (!biometricOn) AppStateManager.instance.resetProfile();
     if (!mounted) return;
-    // Matches the drawer logout in home_screen.dart: clear the stack rather
-    // than replace one route, so nothing an owner opened on the way here can
-    // be reached with the back button after the tokens are gone.
     Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
   }
 
+  // ─────────────────────────────────────────────
+  // BUILD
+  // ─────────────────────────────────────────────
+
+  // Medicare-style green palette
+  static const _posGreen = Color(0xFF0B6B4F);
+  static const _posGreenLight = Color(0xFF0D9B6B);
+  static const _posBg = Color(0xFFF4F7F6);
+  static const _posCard = Colors.white;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    // DefaultTabController rather than a TabController field: nothing outside
-    // build() needs to drive or read the tab index, so the extra State
-    // plumbing and its dispose() would buy nothing.
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: ValueListenableBuilder<String>(
-            valueListenable: AppStateManager.instance.ownedPharmacyNameNotifier,
-            builder: (context, name, _) => Text(name.isEmpty ? 'My Pharmacy' : name),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.home_outlined),
-              tooltip: 'Open the main app',
-              onPressed: () => Navigator.pushNamed(context, '/home'),
-            ),
-            IconButton(
-              icon: const Icon(Icons.logout),
-              tooltip: 'Logout',
-              onPressed: _confirmLogout,
-            ),
-          ],
-          bottom: const TabBar(
-            tabs: [
-              Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Stock'),
-              Tab(icon: Icon(Icons.receipt_long_outlined), text: 'Activity'),
-            ],
-          ),
-        ),
-        // Shown on both tabs. Adding a medicine is a reasonable thing to want
-        // while reading the ledger, and hiding it would mean listening to the
-        // tab index purely to take a button away.
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _addMedicine,
-          icon: const Icon(Icons.add),
-          label: const Text('Add medicine'),
-        ),
-        body: TabBarView(
+    final pharmacyName =
+        AppStateManager.instance.ownedPharmacyNameNotifier.value;
+    return Scaffold(
+      backgroundColor: _posBg,
+      appBar: AppBar(
+        backgroundColor: _posGreen,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        titleSpacing: 16,
+        title: Row(
           children: [
-            _buildBody(theme),
-            _buildActivity(theme),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// The stock ledger: what was dispensed, restocked or adjusted, newest
-  /// first. The rows come from StockTransaction, which the backend has always
-  /// written on every stock change but never exposed until now.
-  Widget _buildActivity(ThemeData theme) {
-    if (_activityLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_activityError != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-              const SizedBox(height: 12),
-              Text(_activityError!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _loadTransactions,
-                child: const Text('Retry'),
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
               ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_transactions.isEmpty) {
-      // AlwaysScrollableScrollPhysics so pull-to-refresh still works on an
-      // empty list -- otherwise there is nothing to drag and the owner cannot
-      // recheck without leaving the screen.
-      return RefreshIndicator(
-        onRefresh: _loadTransactions,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            Padding(
-              padding: EdgeInsets.all(24.0),
-              child: Text(
-                'No stock movements yet. Sales and restocks will appear here as '
-                'they happen.',
-                textAlign: TextAlign.center,
+              child: const Icon(Icons.local_pharmacy, size: 22),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (pharmacyName.isEmpty ? 'PHARMACY POS' : pharmacyName)
+                        .toUpperCase(),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      letterSpacing: 0.6,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const Text(
+                    'OWNER DASHBOARD',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w400),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadTransactions,
-      child: ListView.separated(
-        itemCount: _transactions.length,
-        separatorBuilder: (_, _) => const Divider(height: 1),
-        itemBuilder: (context, index) =>
-            _ActivityRow(entry: _transactions[index]),
+        actions: [
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.circle, size: 8, color: Color(0xFF4ADE80)),
+                SizedBox(width: 6),
+                Text('Online', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Main app',
+            onPressed: () => Navigator.pushNamed(context, '/home'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: _confirmLogout,
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          indicatorColor: Colors.white,
+          indicatorWeight: 3,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: const [
+            Tab(icon: Icon(Icons.point_of_sale, size: 20), text: 'POS'),
+            Tab(icon: Icon(Icons.inventory_2_outlined, size: 20), text: 'Stock'),
+            Tab(icon: Icon(Icons.people_outline, size: 20), text: 'Customers'),
+            Tab(icon: Icon(Icons.receipt_long_outlined, size: 20), text: 'Activity'),
+            Tab(icon: Icon(Icons.analytics_outlined, size: 20), text: 'Analytics'),
+          ],
+        ),
+      ),
+      floatingActionButton: AnimatedBuilder(
+        animation: _tabController,
+        builder: (context, _) {
+          if (_tabController.index != 1) return const SizedBox.shrink();
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              FloatingActionButton.extended(
+                heroTag: 'import_excel',
+                onPressed: _importStockFromExcel,
+                icon: const Icon(Icons.upload_file),
+                label: const Text('Import Excel/CSV'),
+                backgroundColor: _posGreenLight,
+                foregroundColor: Colors.white,
+              ),
+              const SizedBox(height: 10),
+              FloatingActionButton.extended(
+                heroTag: 'add_medicine',
+                onPressed: _addMedicine,
+                icon: const Icon(Icons.add),
+                label: const Text('Add medicine'),
+                backgroundColor: _posGreen,
+                foregroundColor: Colors.white,
+              ),
+            ],
+          );
+        },
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildPosTab(),
+          _buildStockTab(),
+          _buildCustomersTab(),
+          _buildActivityTab(),
+          _buildAnalyticsTab(),
+        ],
       ),
     );
   }
 
-  Widget _buildBody(ThemeData theme) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
+  Widget _buildPosTab() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+              Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
               const SizedBox(height: 12),
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
@@ -1000,98 +1735,1631 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       );
     }
 
-    if (_stock.isEmpty) {
-      return const Center(
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── Catalog ──
+        Expanded(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search medicine, formula, or name...',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () => _searchController.clear(),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              // Category chips
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  children: _categoryKeywords.keys.map((cat) {
+                    final selected = cat == _selectedCategory;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(cat, style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                          color: selected ? Colors.white : _posGreen,
+                        )),
+                        selected: selected,
+                        selectedColor: _posGreen,
+                        backgroundColor: Colors.white,
+                        side: BorderSide(color: selected ? _posGreen : Colors.grey.shade300),
+                        onSelected: (_) => setState(() => _selectedCategory = cat),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: _filteredStock.isEmpty
+                    ? const Center(child: Text('No medicines found', style: TextStyle(color: Colors.grey)))
+                    : GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+                        gridDelegate: const
+SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 200,
+                          childAspectRatio: 0.92,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                        itemCount: _filteredStock.length,
+                        itemBuilder: (context, index) {
+                          final item = _filteredStock[index];
+                          final isLow = item.quantity <= item.lowThreshold;
+                          final isOut = item.quantity <= 0;
+                          return Material(
+                            color: _posCard,
+                            elevation: 1.5,
+                            shadowColor: Colors.black12,
+                            borderRadius: BorderRadius.circular(14),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(14),
+                              onTap: isOut ? null : () => _addToCart(item),
+                              onLongPress: () => _editRow(item),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          width: 36,
+                                          height: 36,
+                                          decoration: BoxDecoration(
+                                            color: _posGreen.withValues(alpha: 0.1),
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Icon(Icons.medication_outlined,
+                                              color: _posGreen, size: 20),
+                                        ),
+                                        const Spacer(),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: isOut
+                                                ? Colors.red.shade50
+                                                : isLow
+                                                    ? const Color(0xFFFFF3CD)
+                                                    : const Color(0xFFD1FAE5),
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                          child: Text(
+                                            isOut
+                                                ? 'Out'
+                                                : 'Stock: ${item.quantity}',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w700,
+                                              color: isOut
+                                                  ? Colors.red.shade700
+                                                  : isLow
+                                                      ? const Color(0xFF92400E)
+                                                      : _posGreen,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      item.medicineName,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      isOut ? 'Unavailable' : 'In stock',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            'Rs ${item.price}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 15,
+                                              color: _posGreen,
+                                            ),
+                                          ),
+                                        ),
+                                        if (!isOut)
+                                          Container(
+                                            width: 28,
+                                            height: 28,
+                                            decoration: BoxDecoration(
+                                              color: _posGreen,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Icon(Icons.add,
+                                                color: Colors.white, size: 18),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+        // ── Current Order panel ──
+        Container(
+          width: 300,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 12,
+                offset: const Offset(-2, 0),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 8, 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.shopping_bag_outlined, color: _posGreen, size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Current Order',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                      ),
+                    ),
+                    if (_cart.isNotEmpty)
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _cart.clear();
+                          _selectedCustomer = null;
+                        }),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red.shade400,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        child: const Text('Clear', style: TextStyle(fontSize: 12)),
+                      ),
+                  ],
+                ),
+              ),
+              // Customer chip
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: InkWell(
+                  onTap: _pickCustomerForBilling,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _posBg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.person_outline, size: 18, color: _posGreen),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _selectedCustomer == null
+                              ? Text('Select customer',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600))
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(_selectedCustomer!.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                            fontSize: 12, fontWeight: FontWeight.w700)),
+                                    Text(
+                                      _selectedCustomer!.hasMembership
+                                          ? '${_selectedCustomer!.phone} · ${_selectedCustomer!.membershipLabel}'
+                                          : _selectedCustomer!.phone,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                        if (_selectedCustomer != null)
+                          GestureDetector(
+                            onTap: () => setState(() => _selectedCustomer = null),
+                            child: Icon(Icons.close, size: 16, color: Colors.grey.shade500),
+                          )
+                        else
+                          Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade400),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              Expanded(
+                child: _cart.isEmpty
+                    ? Center(
+                        child: Text('Tap medicines to add',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        itemCount: _cart.length,
+                        itemBuilder: (context, index) {
+                          final item = _cart[index];
+                          final unit = double.tryParse(item.stock.price) ?? 0;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(item.stock.medicineName,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w600, fontSize: 13)),
+                                      Text(
+                                        'Rs ${unit.toStringAsFixed(0)} × ${item.quantity}',
+                                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _qtyBtn(Icons.remove, () => _changeCartQty(item, -1)),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                                      child: Text('${item.quantity}',
+                                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                                    ),
+                                    _qtyBtn(Icons.add, () => _changeCartQty(item, 1)),
+                                  ],
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  width: 52,
+                                  child: Text(
+                                    'Rs ${item.lineTotal.toStringAsFixed(0)}',
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: Colors.grey.shade200)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Subtotal', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                        Text('Rs ${_cartTotal.toStringAsFixed(2)}',
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('TOTAL',
+                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                        Text(
+                          'Rs ${_cartTotal.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                            color: _posGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: ElevatedButton.icon(
+                        onPressed: _cart.isEmpty || _selling ? null : _completeSale,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _posGreen,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                        icon: _selling
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.payments_outlined, size: 20),
+                        label: Text(
+                          _selling ? 'Processing...' : 'PROCESS PAYMENT',
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _qtyBtn(IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(icon, size: 14, color: _posGreen),
+      ),
+    );
+  }
+
+  Widget _buildStockTab() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(24.0),
-          child: Text('No medicines yet. Use "Add medicine" to start your stock list.'),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline,
+                  size: 48, color: Theme.of(context).colorScheme.error),
+              const SizedBox(height: 12),
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(onPressed: _load, child: const Text('Retry')),
+            ],
+          ),
         ),
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      // .builder because /my-pharmacy/stock/ does not paginate: owner_views.py
-      // list() hands back every row a pharmacy stocks, so the render cost has
-      // to stay bounded even when the payload isn't.
-      child: ListView.builder(
-        itemCount: _stock.length,
-        itemBuilder: (context, index) {
-          final row = _stock[index];
-          final rowError = _rowErrors[row.id];
-          // Derived from the row rather than remembered from the alert that
-          // announced it: the same condition the server tests (signals.py uses
-          // quantity > low_threshold to mean "fine"), so it stays right after
-          // an edit, a refresh, or a threshold change, with no second copy of
-          // the state to keep in step.
-          final isLow = row.quantity <= row.lowThreshold;
-          return ListTile(
-            isThreeLine: rowError != null,
-            leading: isLow
-                ? Icon(
-                    row.quantity == 0
-                        ? Icons.error_outline
-                        : Icons.warning_amber_outlined,
-                    color: theme.colorScheme.error,
-                  )
-                : null,
-            title: Text(row.medicineName),
-            // The error is shown IN ADDITION to the quantity and price, never
-            // instead of them. Replacing them hid the only copy of the row's
-            // data on screen at exactly the moment the owner needs it: after
-            // a rejected edit, deciding whether to retry means knowing what
-            // the server currently holds.
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Qty ${row.quantity}  ·  Rs ${row.price}'
-                  '  ·  alert ≤ ${row.lowThreshold}',
-                ),
-                if (rowError != null)
-                  Text(
-                    rowError,
-                    style: TextStyle(color: theme.colorScheme.error),
+    final query = _searchQuery;
+    final rows = query.isEmpty
+        ? _stock
+        : _stock
+            .where((s) => s.medicineName.toLowerCase().contains(query))
+            .toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search stock...',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () => _searchController.clear(),
+                    )
+                  : null,
+              isDense: true,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Text(
+                '${rows.length} medicine${rows.length == 1 ? '' : 's'} in stock',
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _importStockFromExcel,
+                icon: const Icon(Icons.upload_file, size: 18),
+                label: const Text('Import Excel/CSV'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                onPressed: _addMedicine,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: rows.isEmpty
+              ? RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Text(
+                          'No stock yet.\nTap Add or Import Excel/CSV to load medicines.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                    ],
                   ),
-              ],
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Edit quantity and price',
-                  onPressed: () => _editRow(row),
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView.separated(
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final item = rows[index];
+                      final isLow = item.quantity <= item.lowThreshold;
+                      final isOut = item.quantity <= 0;
+                      final err = _rowErrors[item.id];
+                      return ListTile(
+                        dense: true,
+                        title: Text(
+                          item.medicineName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          err ??
+                              (isOut
+                                  ? 'Out of stock · alert ≤ ${item.lowThreshold}'
+                                  : isLow
+                                      ? 'Low · Qty ${item.quantity} · alert ≤ ${item.lowThreshold}'
+                                      : 'Qty ${item.quantity} · alert ≤ ${item.lowThreshold}'),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: err != null || isOut || isLow
+                                ? Theme.of(context).colorScheme.error
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Rs ${item.price}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 20),
+                              tooltip: 'Edit qty / price / alert',
+                              onPressed: () => _editRow(item),
+                            ),
+                          ],
+                        ),
+                        onTap: () => _editRow(item),
+                      );
+                    },
+                  ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  tooltip: 'Remove',
-                  onPressed: () => _removeRow(row),
-                ),
-              ],
-            ),
-          );
-        },
+        ),
+        const SizedBox(height: 72), // space for FABs
+      ],
+    );
+  }
+
+  /// Import stock by uploading an Excel (.xlsx) or CSV file.
+  /// Expected columns (header row optional):
+  ///   medicine_name, quantity, price, low_threshold
+  Future<void> _importStockFromExcel() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['csv', 'xlsx', 'xls'],
+      withData: true, // needed on web; also works on mobile/desktop
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty || !mounted) return;
+
+    final file = result.files.single;
+    final name = (file.name).toLowerCase();
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not read the file. Try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    String csvRaw;
+    try {
+      if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        csvRaw = _excelBytesToCsv(bytes);
+      } else {
+        // CSV / text
+        csvRaw = utf8.decode(bytes, allowMalformed: true);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to read file: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (csvRaw.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('File is empty')),
+      );
+      return;
+    }
+
+    await _runCsvStockImport(csvRaw);
+  }
+
+  /// Convert first sheet of an .xlsx file into CSV text the importer understands.
+  String _excelBytesToCsv(List<int> bytes) {
+    final excel = Excel.decodeBytes(bytes);
+    if (excel.tables.isEmpty) return '';
+    final sheet = excel.tables[excel.tables.keys.first]!;
+    final buffer = StringBuffer();
+    for (final row in sheet.rows) {
+      final cells = row.map((cell) {
+        if (cell == null || cell.value == null) return '';
+        final v = cell.value;
+        // Prefer numeric/text representation without type noise
+        String s;
+        try {
+          s = (v as dynamic).toString().trim();
+          // Strip TextCellValue("x") style if package toString is verbose
+          if (s.startsWith('TextCellValue(') && s.endsWith(')')) {
+            s = s.substring('TextCellValue('.length, s.length - 1);
+            if (s.startsWith('"') && s.endsWith('"')) {
+              s = s.substring(1, s.length - 1);
+            }
+          } else if (s.startsWith('IntCellValue(') && s.endsWith(')')) {
+            s = s.substring('IntCellValue('.length, s.length - 1);
+          } else if (s.startsWith('DoubleCellValue(') && s.endsWith(')')) {
+            s = s.substring('DoubleCellValue('.length, s.length - 1);
+          }
+        } catch (_) {
+          s = '$v'.trim();
+        }
+        if (s.contains(',') || s.contains('"') || s.contains('\n')) {
+          return '"${s.replaceAll('"', '""')}"';
+        }
+        return s;
+      }).toList();
+      // Skip fully empty rows
+      if (cells.every((c) => c.isEmpty)) continue;
+      buffer.writeln(cells.join(','));
+    }
+    return buffer.toString();
+  }
+
+  Future<void> _runCsvStockImport(String raw) async {
+    final lines = raw
+        .split(RegExp(r'\r?\n'))
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing to import')),
+      );
+      return;
+    }
+
+    // Detect header
+    int start = 0;
+    final firstLower = lines.first.toLowerCase();
+    if (firstLower.contains('medicine') || firstLower.contains('name')) {
+      start = 1;
+    }
+
+    int ok = 0;
+    int failed = 0;
+    final errors = <String>[];
+
+    // Show progress dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Expanded(child: Text('Importing stock...')),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      for (var i = start; i < lines.length; i++) {
+        final cols = _parseCsvLine(lines[i]);
+        if (cols.isEmpty) continue;
+        final name = cols[0].trim();
+        if (name.isEmpty) continue;
+        final qty = cols.length > 1 ? int.tryParse(cols[1].trim()) ?? 0 : 0;
+        final price = cols.length > 2 ? cols[2].trim() : '0';
+        final threshold =
+            cols.length > 3 ? int.tryParse(cols[3].trim()) : null;
+
+        try {
+          // Prefer exact name already in THIS pharmacy's stock
+          final existing = _stock.where((s) {
+            return s.medicineName.toLowerCase() == name.toLowerCase();
+          }).toList();
+
+          if (existing.isNotEmpty) {
+            final row = existing.first;
+            if (qty != row.quantity) {
+              await OwnerStockService.instance.setQuantity(row.id, qty);
+            }
+            if (priceHasChanged(row.price, price)) {
+              await OwnerStockService.instance.setPrice(row.id, price);
+            }
+            if (threshold != null && threshold != row.lowThreshold) {
+              await OwnerStockService.instance
+                  .setLowThreshold(row.id, threshold);
+            }
+          } else {
+            // Not in pharmacy stock yet:
+            // 1) exact catalog match by full name → use id
+            // 2) otherwise create NEW catalog entry with this exact name
+            //    (Amoxicillin 250mg stays separate from Amoxicillin 500mg)
+            final exact = await PharmacyService.instance.searchMedicines(name);
+            Map<String, dynamic>? exactMatch;
+            for (final m in exact) {
+              final n = (m['name'] as String? ?? '').toLowerCase();
+              if (n == name.toLowerCase()) {
+                exactMatch = m;
+                break;
+              }
+            }
+
+            if (exactMatch != null) {
+              await OwnerStockService.instance.addMedicine(
+                medicineId: exactMatch['id'] as int,
+                quantity: qty,
+                price: price.isEmpty ? '0' : price,
+                lowThreshold: threshold,
+              );
+            } else {
+              await OwnerStockService.instance.addMedicineByName(
+                medicineName: name,
+                quantity: qty,
+                price: price.isEmpty ? '0' : price,
+                lowThreshold: threshold,
+              );
+            }
+          }
+          ok++;
+        } catch (e) {
+          failed++;
+          errors.add(
+              '$name — ${e is ApiException ? e.message : 'failed'}');
+        }
+      }
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    if (!mounted) return;
+    await _load();
+    if (!mounted) return;
+
+    final msg = StringBuffer('Imported $ok row(s).');
+    if (failed > 0) {
+      msg.write(' $failed failed.');
+      if (errors.isNotEmpty) {
+        msg.write('\n${errors.take(5).join('\n')}');
+        if (errors.length > 5) msg.write('\n…');
+      }
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg.toString()),
+        duration: Duration(seconds: failed > 0 ? 6 : 3),
+        backgroundColor: failed > 0 ? Colors.orange.shade800 : null,
       ),
     );
   }
+
+  /// Simple CSV line parser supporting quoted fields.
+  List<String> _parseCsvLine(String line) {
+    final result = <String>[];
+    final buf = StringBuffer();
+    var inQuotes = false;
+    for (var i = 0; i < line.length; i++) {
+      final ch = line[i];
+      if (inQuotes) {
+        if (ch == '"') {
+          if (i + 1 < line.length && line[i + 1] == '"') {
+            buf.write('"');
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          buf.write(ch);
+        }
+      } else {
+        if (ch == '"') {
+          inQuotes = true;
+        } else if (ch == ',') {
+          result.add(buf.toString());
+          buf.clear();
+        } else {
+          buf.write(ch);
+        }
+      }
+    }
+    result.add(buf.toString());
+    return result;
+  }
+
+  Widget _buildCustomersTab() {
+    if (_customersLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_customersError != null && _customers.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline,
+                  size: 48, color: Theme.of(context).colorScheme.error),
+              const SizedBox(height: 12),
+              Text(_customersError!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                  onPressed: _loadCustomers, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final list = _filteredCustomers;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _customerSearchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search customers...',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _customerSearchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () => _customerSearchController.clear(),
+                          )
+                        : null,
+                    isDense: true,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: () => _createOrEditCustomer(),
+                icon: const Icon(Icons.person_add_alt_1, size: 18),
+                label: const Text('New'),
+                style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: list.isEmpty
+              ? RefreshIndicator(
+                  onRefresh: _loadCustomers,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Text(
+                          'No customers yet.\nTap New to add one with membership.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadCustomers,
+                  child: ListView.separated(
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final c = list[index];
+                      final selected = _selectedCustomer?.id == c.id ||
+                          (_selectedCustomer?.phone == c.phone &&
+                              _selectedCustomer != null);
+                      return ListTile(
+                        dense: true,
+                        selected: selected,
+                        leading: CircleAvatar(
+                          radius: 18,
+                          child: Text(
+                            c.name.isNotEmpty ? c.name[0].toUpperCase() : '?',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ),
+                        title: Text(
+                          c.name,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          c.hasMembership
+                              ? '${c.phone} · ${c.membershipLabel}${c.membershipId.isNotEmpty ? ' (${c.membershipId})' : ''}'
+                              : c.phone,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (c.hasMembership)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 4),
+                                child: Chip(
+                                  label: Text(c.membershipLabel,
+                                      style: const TextStyle(fontSize: 10)),
+                                  visualDensity: VisualDensity.compact,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  padding: EdgeInsets.zero,
+                                ),
+                              ),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                              tooltip: 'Edit',
+                              onPressed: () =>
+                                  _createOrEditCustomer(existing: c),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                              tooltip: 'Delete',
+                              onPressed: () => _deleteCustomer(c),
+                            ),
+                          ],
+                        ),
+                        onTap: () {
+                          setState(() => _selectedCustomer = c);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  '${c.name} selected for billing'),
+                              duration: const Duration(seconds: 1),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActivityTab() {
+    if (_activityLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_activityError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+              const SizedBox(height: 12),
+              Text(_activityError!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(onPressed: _loadTransactions, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayTx = _transactions.where((t) => !t.serverTimestamp.isBefore(todayStart)).toList();
+    final todaySales = todayTx.where((t) => t.isDispense).toList();
+    final todayUnits = todaySales.fold<int>(0, (s, t) => s + t.quantityDelta.abs());
+    final todayRevenue = _estimateRevenue(todaySales);
+    final todayRestock = todayTx.where((t) => !t.isDispense).length;
+
+    return Column(
+      children: [
+        // Daily summary strip
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [_posGreen, _posGreenLight],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("Today's summary",
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _dayStat('Sales lines', '${todaySales.length}'),
+                  _dayStat('Units sold', '$todayUnits'),
+                  _dayStat('Est. revenue', 'Rs ${todayRevenue.toStringAsFixed(0)}'),
+                  _dayStat('Restocks', '$todayRestock'),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => _showDayReport(todayStart),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.white.withValues(alpha: 0.18),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  icon: const Icon(Icons.description_outlined, size: 16),
+                  label: const Text('Generate day report', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Text(
+                'Full history (${_transactions.length})',
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: _loadTransactions,
+                child: const Text('Refresh', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _transactions.isEmpty
+              ? RefreshIndicator(
+                  onRefresh: _loadTransactions,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'No stock movements yet.\nSales and restocks will appear here with time, user, and quantity.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadTransactions,
+                  child: ListView.separated(
+                    itemCount: _transactions.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final entry = _transactions[index];
+                      final isDispense = entry.isDispense;
+                      final price = _priceForMedicine(entry.medicineName);
+                      final est = price * entry.quantityDelta.abs();
+                      final who = entry.source == 'POS_SYNC'
+                          ? 'POS terminal'
+                          : (entry.changedByUsername ?? 'Manual');
+                      final when = entry.serverTimestamp;
+                      final timeStr =
+                          '${when.day.toString().padLeft(2, '0')}/${when.month.toString().padLeft(2, '0')} '
+                          '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
+                      return ListTile(
+                        dense: true,
+                        leading: CircleAvatar(
+                          backgroundColor: (isDispense ? Colors.red : _posGreen)
+                              .withValues(alpha: 0.12),
+                          child: Icon(
+                            isDispense ? Icons.shopping_cart_checkout : Icons.inventory,
+                            color: isDispense ? Colors.red.shade700 : _posGreen,
+                            size: 18,
+                          ),
+                        ),
+                        title: Text(entry.medicineName,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        subtitle: Text(
+                          '${entry.transactionType} · by $who · $timeStr',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              entry.quantityDelta > 0
+                                  ? '+${entry.quantityDelta}'
+                                  : '${entry.quantityDelta}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: isDispense ? Colors.red.shade700 : _posGreen,
+                              ),
+                            ),
+                            if (isDispense)
+                              Text(
+                                '≈ Rs ${est.toStringAsFixed(0)}',
+                                style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _dayStat(String label, String value) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+        ],
+      ),
+    );
+  }
+
+  double _priceForMedicine(String name) {
+    for (final s in _stock) {
+      if (s.medicineName.toLowerCase() == name.toLowerCase()) {
+        return double.tryParse(s.price) ?? 0;
+      }
+    }
+    // fuzzy contains
+    final lower = name.toLowerCase();
+    for (final s in _stock) {
+      if (s.medicineName.toLowerCase().contains(lower) ||
+          lower.contains(s.medicineName.toLowerCase())) {
+        return double.tryParse(s.price) ?? 0;
+      }
+    }
+    return 0;
+  }
+
+  double _estimateRevenue(List<StockTransactionEntry> sales) {
+    double total = 0;
+    for (final t in sales) {
+      total += _priceForMedicine(t.medicineName) * t.quantityDelta.abs();
+    }
+    return total;
+  }
+
+  Future<void> _showDayReport(DateTime dayStart) async {
+    final pharmacy =
+        AppStateManager.instance.ownedPharmacyNameNotifier.value;
+    final dateStr =
+        '${dayStart.day.toString().padLeft(2, '0')}/${dayStart.month.toString().padLeft(2, '0')}/${dayStart.year}';
+
+    final sales = await OwnerSalesLog.instance.forDay(dayStart);
+    final dayEnd = dayStart.add(const Duration(days: 1));
+    final dayTx = _transactions
+        .where((t) =>
+            !t.serverTimestamp.isBefore(dayStart) &&
+            t.serverTimestamp.isBefore(dayEnd))
+        .toList();
+    final dispenseTx = dayTx.where((t) => t.isDispense).toList();
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Day report — $dateStr'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                pharmacy.isEmpty ? 'Pharmacy' : pharmacy,
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+              ),
+              const SizedBox(height: 8),
+              Text('Completed bills (with customer): ${sales.length}'),
+              Text(
+                'Total revenue: Rs ${sales.fold<double>(0, (s, r) => s + r.total).toStringAsFixed(2)}',
+              ),
+              Text(
+                'Units in bills: ${sales.fold<int>(0, (s, r) => s + r.unitCount)}',
+              ),
+              Text('Stock dispense events: ${dispenseTx.length}'),
+              const SizedBox(height: 12),
+              const Text(
+                'PDF includes store name, each bill time, customer name/phone/membership, medicines bought, amounts, and cashier.',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await SalesReportPdf.instance.shareDayReport(
+                  pharmacyName: pharmacy,
+                  dayStart: dayStart,
+                  sales: sales,
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('PDF failed: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.picture_as_pdf, size: 18),
+            label: const Text('Download PDF'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnalyticsTab() {
+    if (_activityLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+
+    // Last 7 days buckets
+    final days = List.generate(7, (i) {
+      final d = todayStart.subtract(Duration(days: 6 - i));
+      return d;
+    });
+    final unitsPerDay = <DateTime, int>{};
+    final revenuePerDay = <DateTime, double>{};
+    for (final d in days) {
+      unitsPerDay[d] = 0;
+      revenuePerDay[d] = 0;
+    }
+    for (final t in _transactions) {
+      if (!t.isDispense) continue;
+      final day = DateTime(t.serverTimestamp.year, t.serverTimestamp.month, t.serverTimestamp.day);
+      if (!unitsPerDay.containsKey(day)) continue;
+      unitsPerDay[day] = unitsPerDay[day]! + t.quantityDelta.abs();
+      revenuePerDay[day] = revenuePerDay[day]! +
+          _priceForMedicine(t.medicineName) * t.quantityDelta.abs();
+    }
+
+    final todayUnits = unitsPerDay[todayStart] ?? 0;
+    final todayRevenue = revenuePerDay[todayStart] ?? 0;
+    final yesterday = todayStart.subtract(const Duration(days: 1));
+    final yUnits = unitsPerDay[yesterday] ?? 0;
+    final yRevenue = revenuePerDay[yesterday] ?? 0;
+
+    // Cashiers ranking (all loaded history)
+    final cashierUnits = <String, int>{};
+    final cashierRevenue = <String, double>{};
+    for (final t in _transactions.where((t) => t.isDispense)) {
+      final who = t.changedByUsername ?? (t.source == 'POS_SYNC' ? 'POS' : 'Unknown');
+      cashierUnits[who] = (cashierUnits[who] ?? 0) + t.quantityDelta.abs();
+      cashierRevenue[who] = (cashierRevenue[who] ?? 0) +
+          _priceForMedicine(t.medicineName) * t.quantityDelta.abs();
+    }
+    final cashierRank = cashierUnits.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    // Top medicines
+    final medUnits = <String, int>{};
+    for (final t in _transactions.where((t) => t.isDispense)) {
+      medUnits[t.medicineName] = (medUnits[t.medicineName] ?? 0) + t.quantityDelta.abs();
+    }
+    final topMeds = medUnits.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    final maxDayUnits = unitsPerDay.values.fold<int>(1, (a, b) => a > b ? a : b);
+
+    double pctChange(double cur, double prev) {
+      if (prev == 0) return cur == 0 ? 0 : 100;
+      return ((cur - prev) / prev) * 100;
+    }
+
+    final unitsChange = pctChange(todayUnits.toDouble(), yUnits.toDouble());
+    final revChange = pctChange(todayRevenue, yRevenue);
+
+    return RefreshIndicator(
+      onRefresh: _loadTransactions,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('Sales Analytics',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+          Text('Based on actual stock movements from your pharmacy',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          const SizedBox(height: 16),
+
+          // KPI cards
+          Row(
+            children: [
+              Expanded(
+                child: _kpiCard(
+                  'Today units',
+                  '$todayUnits',
+                  unitsChange,
+                  Icons.shopping_bag_outlined,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _kpiCard(
+                  'Today revenue*',
+                  'Rs ${todayRevenue.toStringAsFixed(0)}',
+                  revChange,
+                  Icons.payments_outlined,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '* Revenue estimated from current shelf prices × units dispensed.',
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade500, fontStyle: FontStyle.italic),
+          ),
+          const SizedBox(height: 20),
+
+          // 7-day bar chart
+          const Text('Last 7 days — units sold',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 160,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: days.map((d) {
+                final u = unitsPerDay[d] ?? 0;
+                final h = maxDayUnits == 0 ? 0.0 : (u / maxDayUnits) * 120;
+                final isToday = d == todayStart;
+                final label = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][d.weekday - 1];
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text('$u', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600,
+                            color: isToday ? _posGreen : Colors.grey.shade700)),
+                        const SizedBox(height: 4),
+                        Container(
+                          height: h.clamp(4, 120),
+                          decoration: BoxDecoration(
+                            color: isToday ? _posGreen : _posGreen.withValues(alpha: 0.35),
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(label,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
+                              color: isToday ? _posGreen : Colors.grey.shade600,
+                            )),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Revenue row under chart
+          Row(
+            children: days.map((d) {
+              final r = revenuePerDay[d] ?? 0;
+              return Expanded(
+                child: Text(
+                  r == 0 ? '—' : r.toStringAsFixed(0),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
+                ),
+              );
+            }).toList(),
+          ),
+          Text('Revenue (Rs) under each day',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+
+          const SizedBox(height: 24),
+          const Text('Cashier / user ranking',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 8),
+          if (cashierRank.isEmpty)
+            Text('No sales recorded yet.',
+                style: TextStyle(color: Colors.grey.shade600))
+          else
+            ...cashierRank.take(8).toList().asMap().entries.map((e) {
+              final i = e.key;
+              final name = e.value.key;
+              final units = e.value.value;
+              final rev = cashierRevenue[name] ?? 0;
+              final maxU = cashierRank.first.value;
+              final frac = maxU == 0 ? 0.0 : units / maxU;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 12,
+                          backgroundColor: i == 0 ? _posGreen : Colors.grey.shade300,
+                          child: Text('${i + 1}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: i == 0 ? Colors.white : Colors.black87,
+                              )),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(name,
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        ),
+                        Text('$units units · Rs ${rev.toStringAsFixed(0)}',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: frac,
+                        minHeight: 6,
+                        backgroundColor: Colors.grey.shade200,
+                        color: i == 0 ? _posGreen : _posGreenLight,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+
+          const SizedBox(height: 20),
+          const Text('Top selling medicines',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 8),
+          if (topMeds.isEmpty)
+            Text('No sales yet.', style: TextStyle(color: Colors.grey.shade600))
+          else
+            ...topMeds.take(8).map((e) {
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.medication_outlined, color: _posGreen),
+                title: Text(e.key, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                trailing: Text('${e.value} units',
+                    style: const TextStyle(fontWeight: FontWeight.w700, color: _posGreen)),
+              );
+            }),
+
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: () => _showDayReport(todayStart),
+            icon: const Icon(Icons.description_outlined),
+            label: const Text("Today's day report (PDF)"),
+            style: OutlinedButton.styleFrom(foregroundColor: _posGreen),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: () async {
+              final pharmacy =
+                  AppStateManager.instance.ownedPharmacyNameNotifier.value;
+              final all = await OwnerSalesLog.instance.loadAll();
+              if (!mounted) return;
+              try {
+                await SalesReportPdf.instance.shareAnalyticsReport(
+                  pharmacyName: pharmacy,
+                  sales: all,
+                  generatedAt: DateTime.now(),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('PDF failed: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.picture_as_pdf, size: 18),
+            label: const Text('Full analytics PDF'),
+            style: FilledButton.styleFrom(backgroundColor: _posGreen),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _kpiCard(String label, String value, double changePct, IconData icon) {
+    final up = changePct >= 0;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: _posGreen),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: up ? const Color(0xFFD1FAE5) : const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '${up ? '+' : ''}${changePct.toStringAsFixed(0)}% vs yday',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: up ? _posGreen : Colors.red.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(value,
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
+          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+        ],
+      ),
+    );
+  }
+
+
 }
 
-/// One line of the stock ledger.
-///
-/// Reads at a glance as "what happened, to what, how much, when": the sign of
-/// the delta is carried by both colour and an explicit +/- so it does not rely
-/// on colour alone, which would be invisible to a colour-blind owner and in
-/// bright sunlight.
 class _ActivityRow extends StatelessWidget {
   const _ActivityRow({required this.entry});
-
   final StockTransactionEntry entry;
 
-  /// "2 minutes ago" beats a wall-clock time for a feed whose whole point is
-  /// recency -- the owner cares that a sale just happened, not that it was
-  /// 14:32. Falls back to a date once relative time stops being useful.
   static String _relativeTime(DateTime timestamp) {
     final delta = DateTime.now().difference(timestamp);
     if (delta.inSeconds < 60) return 'just now';
@@ -1102,13 +3370,9 @@ class _ActivityRow extends StatelessWidget {
     if (delta.inDays < 7) {
       return '${delta.inDays} day${delta.inDays == 1 ? '' : 's'} ago';
     }
-    final d = timestamp;
-    return '${d.day}/${d.month}/${d.year}';
+    return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
   }
 
-  /// Who or what made the change. changed_by is null for POS_SYNC rows, which
-  /// authenticate with a pharmacy-wide key and have no user behind them, so
-  /// the source is named instead of leaving a blank.
   String get _attribution {
     if (entry.source == 'POS_SYNC') return 'POS';
     return entry.changedByUsername ?? 'Manual';
@@ -1130,19 +3394,17 @@ class _ActivityRow extends StatelessWidget {
           size: 20,
         ),
       ),
-      title: Text(
-        entry.medicineName,
-        style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-      ),
+      title: Text(entry.medicineName,
+          style: theme.textTheme.bodyLarge
+              ?.copyWith(fontWeight: FontWeight.w500)),
       subtitle: Text(
-        '${entry.transactionType.toLowerCase()} · $_attribution · '
-        '${_relativeTime(entry.serverTimestamp)}',
+        '${entry.transactionType.toLowerCase()} · $_attribution · ${_relativeTime(entry.serverTimestamp)}',
         style: theme.textTheme.bodySmall,
       ),
       trailing: Text(
-        // Explicit sign: quantity_delta is already negative for a dispense, so
-        // only the positive case needs a '+' adding.
-        entry.quantityDelta > 0 ? '+${entry.quantityDelta}' : '${entry.quantityDelta}',
+        entry.quantityDelta > 0
+            ? '+${entry.quantityDelta}'
+            : '${entry.quantityDelta}',
         style: theme.textTheme.titleMedium?.copyWith(
           color: deltaColor,
           fontWeight: FontWeight.bold,

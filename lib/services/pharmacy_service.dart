@@ -63,8 +63,63 @@ class PharmacyService {
   /// user narrows the query until the medicine they want is visible, so 20
   /// candidates is a UI cap, not silent data loss.
   Future<List<Map<String, dynamic>>> searchMedicines(String query) async {
-    final data = await _client.get('/medicines/', query: {'search': query});
-    return (data['results'] as List).cast<Map<String, dynamic>>();
+    final q = query.trim();
+    if (q.isEmpty) return [];
+    final data = await _client.get('/medicines/', query: {'search': q});
+    if (data is List) {
+      return data.cast<Map<String, dynamic>>();
+    }
+    if (data is Map && data['results'] is List) {
+      return (data['results'] as List).cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  /// Resolve a catalog medicine by free-text name (exact → contains → first word).
+  /// Returns null if nothing plausible is found.
+  Future<Map<String, dynamic>?> resolveMedicine(String rawName) async {
+    final name = rawName.trim();
+    if (name.isEmpty) return null;
+
+    Future<List<Map<String, dynamic>>> trySearch(String q) async {
+      try {
+        return await searchMedicines(q);
+      } catch (_) {
+        return [];
+      }
+    }
+
+    // 1) Full name
+    var found = await trySearch(name);
+    // 2) Without strength / dosage tokens (e.g. "Amoxicillin 250mg" → "Amoxicillin")
+    if (found.isEmpty) {
+      final stripped = name
+          .replaceAll(RegExp(r'\b\d+([./]\d+)?\s*(mg|mcg|g|ml|iu|%)\b', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (stripped.isNotEmpty && stripped.toLowerCase() != name.toLowerCase()) {
+        found = await trySearch(stripped);
+      }
+    }
+    // 3) First word only
+    if (found.isEmpty) {
+      final first = name.split(RegExp(r'\s+')).first;
+      if (first.length >= 3) found = await trySearch(first);
+    }
+    if (found.isEmpty) return null;
+
+    final lower = name.toLowerCase();
+    // Prefer exact name match
+    for (final m in found) {
+      final n = (m['name'] as String? ?? '').toLowerCase();
+      if (n == lower) return m;
+    }
+    // Prefer name that contains the query or vice-versa
+    for (final m in found) {
+      final n = (m['name'] as String? ?? '').toLowerCase();
+      if (n.contains(lower) || lower.contains(n)) return m;
+    }
+    return found.first;
   }
 
   Future<app_state.Pharmacy> _toPharmacy(Map<String, dynamic> json) async {

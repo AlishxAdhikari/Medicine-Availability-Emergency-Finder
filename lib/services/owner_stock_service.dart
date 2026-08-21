@@ -214,14 +214,47 @@ class OwnerStockService {
     required String price,
     int? lowThreshold,
   }) async {
-    final data = await _client.post('/my-pharmacy/stock/', {
+    final body = <String, dynamic>{
       'medicine': medicineId,
       'quantity': quantity,
       'price': price,
-      // Omitted rather than guessed when the owner leaves it blank, so the
-      // server's own default (10) stays the single source of that number.
-      'low_threshold': ?lowThreshold,
-    }, auth: true);
+    };
+    if (lowThreshold != null) body['low_threshold'] = lowThreshold;
+    final data = await _client.post('/my-pharmacy/stock/', body, auth: true);
+    return OwnerStock.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
+  /// Stock a medicine by name. If that exact name is not in the catalog,
+  /// the server creates it (so Amoxicillin 250mg can exist alongside 500mg).
+  Future<OwnerStock> addMedicineByName({
+    required String medicineName,
+    required int quantity,
+    required String price,
+    int? lowThreshold,
+    String? genericName,
+    String? category,
+    String? dosageForm,
+    String? strength,
+  }) async {
+    final body = <String, dynamic>{
+      'medicine_name': medicineName.trim(),
+      'quantity': quantity,
+      'price': price,
+    };
+    if (lowThreshold != null) body['low_threshold'] = lowThreshold;
+    if (genericName != null && genericName.trim().isNotEmpty) {
+      body['generic_name'] = genericName.trim();
+    }
+    if (category != null && category.trim().isNotEmpty) {
+      body['category'] = category.trim();
+    }
+    if (dosageForm != null && dosageForm.trim().isNotEmpty) {
+      body['dosage_form'] = dosageForm.trim();
+    }
+    if (strength != null && strength.trim().isNotEmpty) {
+      body['strength'] = strength.trim();
+    }
+    final data = await _client.post('/my-pharmacy/stock/', body, auth: true);
     return OwnerStock.fromJson(Map<String, dynamic>.from(data as Map));
   }
 

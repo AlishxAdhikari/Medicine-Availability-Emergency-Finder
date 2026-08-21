@@ -77,3 +77,37 @@ class PharmacyOwner(models.Model):
 
     def __str__(self):
         return f"{self.user.username} owns {self.pharmacy.name}"
+
+class PharmacyCustomer(models.Model):
+    """Walk-in / regular customer of a pharmacy, with optional membership."""
+
+    MEMBERSHIP_NONE = 'NONE'
+    MEMBERSHIP_SILVER = 'SILVER'
+    MEMBERSHIP_GOLD = 'GOLD'
+    MEMBERSHIP_PLATINUM = 'PLATINUM'
+    MEMBERSHIP_CHOICES = [
+        (MEMBERSHIP_NONE, 'None'),
+        (MEMBERSHIP_SILVER, 'Silver'),
+        (MEMBERSHIP_GOLD, 'Gold'),
+        (MEMBERSHIP_PLATINUM, 'Platinum'),
+    ]
+
+    pharmacy = models.ForeignKey(
+        Pharmacy, on_delete=models.CASCADE, related_name='customers',
+    )
+    name = models.CharField(max_length=200)
+    phone = models.CharField(max_length=20, db_index=True)
+    membership = models.CharField(
+        max_length=20, choices=MEMBERSHIP_CHOICES, default=MEMBERSHIP_NONE,
+    )
+    membership_id = models.CharField(max_length=40, blank=True)
+    notes = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('pharmacy', 'phone')
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} ({self.phone}) @ {self.pharmacy.name}"

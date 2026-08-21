@@ -96,17 +96,54 @@ class OwnerStockViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
     def create(self, request):
+        """Add a medicine to this pharmacy's stock.
+
+        Accepts either:
+          - medicine: <catalog id>  (existing behaviour), or
+          - medicine_name: "<string>"  — find by exact name, or create a new
+            catalog Medicine row so owners can stock strengths/products that
+            were not in the seed list (e.g. Amoxicillin 250mg when only 500mg
+            exists).
+        Optional with medicine_name: generic_name, category, dosage_form, strength.
+        """
         raw_medicine = request.data.get('medicine')
-        if isinstance(raw_medicine, bool):
-            # int(True) == 1: a JSON `true` here used to resolve to whichever
-            # medicine happens to hold pk 1.
-            raw_medicine = None
-        try:
-            medicine_id = int(raw_medicine)
-        except (TypeError, ValueError):
-            return Response({'medicine': ['A valid medicine id is required.']},
-                            status=status.HTTP_400_BAD_REQUEST)
-        medicine = get_object_or_404(Medicine, pk=medicine_id)
+        medicine_name = (request.data.get('medicine_name') or '').strip()
+
+        medicine = None
+        if medicine_name and (raw_medicine is None or raw_medicine == ''):
+            # Create-or-get by exact name so 250mg stays distinct from 500mg.
+            defaults = {
+                'generic_name': (request.data.get('generic_name') or '').strip(),
+                'category': (request.data.get('category') or 'General').strip() or 'General',
+                'dosage_form': (request.data.get('dosage_form') or 'Tablet').strip() or 'Tablet',
+                'strength': (request.data.get('strength') or '').strip(),
+                'brand': (request.data.get('brand') or '').strip(),
+            }
+            # Infer strength from name if not provided (e.g. "... 250mg")
+            if not defaults['strength']:
+                import re
+                m = re.search(r'(\d+(?:[./]\d+)?\s*(?:mg|mcg|g|ml|iu|%))', medicine_name, re.I)
+                if m:
+                    defaults['strength'] = m.group(1).replace(' ', '')
+            medicine, _ = Medicine.objects.get_or_create(
+                name=medicine_name,
+                defaults=defaults,
+            )
+        else:
+            if isinstance(raw_medicine, bool):
+                # int(True) == 1: a JSON `true` here used to resolve to whichever
+                # medicine happens to hold pk 1.
+                raw_medicine = None
+            try:
+                medicine_id = int(raw_medicine)
+            except (TypeError, ValueError):
+                return Response(
+                    {'medicine': [
+                        'Provide medicine (catalog id) or medicine_name (to create/find).'
+                    ]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            medicine = get_object_or_404(Medicine, pk=medicine_id)
 
         quantity, error = _parse_quantity(request.data.get('quantity'))
         if error is not None:
@@ -247,3 +284,39 @@ class OwnerStockViewSet(viewsets.ViewSet):
         )
         stock.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class OwnerCustomerViewSet(viewsets.ModelViewSet):
+    """CRUD for walk-in customers + membership of the owner's pharmacy."""
+
+    permission_classes = [IsPharmacyOwner]
+    serializer_class = None  # set below to avoid circular import at module load
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_serializer_class(self):
+        from .serializers import PharmacyCustomerSerializer
+        return PharmacyCustomerSerializer
+
+    def get_queryset(self):
+        from .models import PharmacyCustomer
+        pharmacy = self.request.user.pharmacy_owner.pharmacy
+        qs = PharmacyCustomer.objects.filter(pharmacy=pharmacy)
+        q = (self.request.query_params.get('q') or '').strip()
+        if q:
+            from django.db.models import Q
+            qs = qs.filter(Q(name__icontains=q) | Q(phone__icontains=q))
+        return qs
+
+    def perform_create(self, serializer):
+        pharmacy = self.request.user.pharmacy_owner.pharmacy
+        serializer.save(pharmacy=pharmacy)
+
+    def create(self, request, *args, **kwargs):
+        from django.db import IntegrityError
+        try:
+            return super().create(request, *args, **kwargs)
+        except IntegrityError:
+            return Response(
+                {'phone': ['A customer with this phone already exists.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
