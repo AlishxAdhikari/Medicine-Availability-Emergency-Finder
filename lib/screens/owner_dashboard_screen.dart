@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
@@ -1631,20 +1632,43 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
           ],
         ),
         actions: [
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.circle, size: 8, color: Color(0xFF4ADE80)),
-                SizedBox(width: 6),
-                Text('Online', style: TextStyle(fontSize: 12)),
-              ],
-            ),
+          ValueListenableBuilder<UserProfile>(
+            valueListenable: AppStateManager.instance.userProfileNotifier,
+            builder: (context, profile, _) {
+              return ValueListenableBuilder<String>(
+                valueListenable: AppStateManager.instance.usernameNotifier,
+                builder: (context, username, __) {
+                  final fullName = profile.fullName.trim();
+                  final displayName = fullName.isNotEmpty
+                      ? fullName
+                      : (username.trim().isNotEmpty ? username.trim() : 'Owner');
+                  return Container(
+                    margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.circle, size: 8, color: Color(0xFF4ADE80)),
+                        const SizedBox(width: 6),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 110),
+                          child: Text(
+                            displayName,
+                            style: const TextStyle(fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.home_outlined),
@@ -1735,417 +1759,727 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
       );
     }
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // ── Catalog ──
-        Expanded(
-          child: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 700;
+        if (isWide) {
+          // Tablet / desktop: side-by-side catalog + order panel
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search medicine, formula, or name...',
-                    prefixIcon: const Icon(Icons.search, size: 20),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear, size: 18),
-                            onPressed: () => _searchController.clear(),
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: Colors.white,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-              ),
-              // Category chips
-              SizedBox(
-                height: 40,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  children: _categoryKeywords.keys.map((cat) {
-                    final selected = cat == _selectedCategory;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(cat, style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                          color: selected ? Colors.white : _posGreen,
-                        )),
-                        selected: selected,
-                        selectedColor: _posGreen,
-                        backgroundColor: Colors.white,
-                        side: BorderSide(color: selected ? _posGreen : Colors.grey.shade300),
-                        onSelected: (_) => setState(() => _selectedCategory = cat),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: _filteredStock.isEmpty
-                    ? const Center(child: Text('No medicines found', style: TextStyle(color: Colors.grey)))
-                    : GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
-                        gridDelegate: const
-SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 200,
-                          childAspectRatio: 0.92,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                        ),
-                        itemCount: _filteredStock.length,
-                        itemBuilder: (context, index) {
-                          final item = _filteredStock[index];
-                          final isLow = item.quantity <= item.lowThreshold;
-                          final isOut = item.quantity <= 0;
-                          return Material(
-                            color: _posCard,
-                            elevation: 1.5,
-                            shadowColor: Colors.black12,
-                            borderRadius: BorderRadius.circular(14),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: isOut ? null : () => _addToCart(item),
-                              onLongPress: () => _editRow(item),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          width: 36,
-                                          height: 36,
-                                          decoration: BoxDecoration(
-                                            color: _posGreen.withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                          child: Icon(Icons.medication_outlined,
-                                              color: _posGreen, size: 20),
-                                        ),
-                                        const Spacer(),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 8, vertical: 3),
-                                          decoration: BoxDecoration(
-                                            color: isOut
-                                                ? Colors.red.shade50
-                                                : isLow
-                                                    ? const Color(0xFFFFF3CD)
-                                                    : const Color(0xFFD1FAE5),
-                                            borderRadius: BorderRadius.circular(20),
-                                          ),
-                                          child: Text(
-                                            isOut
-                                                ? 'Out'
-                                                : 'Stock: ${item.quantity}',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w700,
-                                              color: isOut
-                                                  ? Colors.red.shade700
-                                                  : isLow
-                                                      ? const Color(0xFF92400E)
-                                                      : _posGreen,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const Spacer(),
-                                    Text(
-                                      item.medicineName,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      isOut ? 'Unavailable' : 'In stock',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            'Rs ${item.price}',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 15,
-                                              color: _posGreen,
-                                            ),
-                                          ),
-                                        ),
-                                        if (!isOut)
-                                          Container(
-                                            width: 28,
-                                            height: 28,
-                                            decoration: BoxDecoration(
-                                              color: _posGreen,
-                                              borderRadius: BorderRadius.circular(8),
-                                            ),
-                                            child: const Icon(Icons.add,
-                                                color: Colors.white, size: 18),
-                                          ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
+              Expanded(child: _buildCatalogPanel(isWide: true)),
+              _buildOrderPanel(isWide: true),
             ],
+          );
+        }
+        // Phone: full-width catalog + sticky bottom cart bar
+        return Column(
+          children: [
+            Expanded(child: _buildCatalogPanel(isWide: false)),
+            _buildMobileCartBar(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildCatalogPanel({required bool isWide}) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search medicine...',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () => _searchController.clear(),
+                    )
+                  : null,
+              filled: true,
+              fillColor: Colors.white,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(24),
+                borderSide: BorderSide.none,
+              ),
+            ),
           ),
         ),
-        // ── Current Order panel ──
-        Container(
-          width: 300,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 12,
-                offset: const Offset(-2, 0),
-              ),
-            ],
+        // Category chips
+        SizedBox(
+          height: 38,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            children: _categoryKeywords.keys.map((cat) {
+              final selected = cat == _selectedCategory;
+              return Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: ChoiceChip(
+                  label: Text(cat, style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? Colors.white : _posGreen,
+                  )),
+                  selected: selected,
+                  selectedColor: _posGreen,
+                  backgroundColor: Colors.white,
+                  side: BorderSide(color: selected ? _posGreen : Colors.grey.shade300),
+                  onSelected: (_) => setState(() => _selectedCategory = cat),
+                  visualDensity: VisualDensity.compact,
+                ),
+              );
+            }).toList(),
           ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 8, 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.shopping_bag_outlined, color: _posGreen, size: 20),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'Current Order',
-                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-                      ),
-                    ),
-                    if (_cart.isNotEmpty)
-                      TextButton(
-                        onPressed: () => setState(() {
-                          _cart.clear();
-                          _selectedCustomer = null;
-                        }),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red.shade400,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        child: const Text('Clear', style: TextStyle(fontSize: 12)),
-                      ),
-                  ],
-                ),
-              ),
-              // Customer chip
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: InkWell(
-                  onTap: _pickCustomerForBilling,
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _posBg,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.person_outline, size: 18, color: _posGreen),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _selectedCustomer == null
-                              ? Text('Select customer',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600))
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(_selectedCustomer!.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                            fontSize: 12, fontWeight: FontWeight.w700)),
-                                    Text(
-                                      _selectedCustomer!.hasMembership
-                                          ? '${_selectedCustomer!.phone} · ${_selectedCustomer!.membershipLabel}'
-                                          : _selectedCustomer!.phone,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                        if (_selectedCustomer != null)
-                          GestureDetector(
-                            onTap: () => setState(() => _selectedCustomer = null),
-                            child: Icon(Icons.close, size: 16, color: Colors.grey.shade500),
-                          )
-                        else
-                          Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade400),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Divider(height: 1),
-              Expanded(
-                child: _cart.isEmpty
-                    ? Center(
-                        child: Text('Tap medicines to add',
-                            style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        itemCount: _cart.length,
-                        itemBuilder: (context, index) {
-                          final item = _cart[index];
-                          final unit = double.tryParse(item.stock.price) ?? 0;
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(item.stock.medicineName,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w600, fontSize: 13)),
-                                      Text(
-                                        'Rs ${unit.toStringAsFixed(0)} × ${item.quantity}',
-                                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _qtyBtn(Icons.remove, () => _changeCartQty(item, -1)),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                                      child: Text('${item.quantity}',
-                                          style: const TextStyle(fontWeight: FontWeight.w800)),
-                                    ),
-                                    _qtyBtn(Icons.add, () => _changeCartQty(item, 1)),
-                                  ],
-                                ),
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  width: 52,
-                                  child: Text(
-                                    'Rs ${item.lineTotal.toStringAsFixed(0)}',
-                                    textAlign: TextAlign.right,
-                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border(top: BorderSide(color: Colors.grey.shade200)),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Subtotal', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                        Text('Rs ${_cartTotal.toStringAsFixed(2)}',
-                            style: const TextStyle(fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('TOTAL',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
-                        Text(
-                          'Rs ${_cartTotal.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 18,
-                            color: _posGreen,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 46,
-                      child: ElevatedButton.icon(
-                        onPressed: _cart.isEmpty || _selling ? null : _completeSale,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _posGreen,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 0,
-                        ),
-                        icon: _selling
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white),
-                              )
-                            : const Icon(Icons.payments_outlined, size: 20),
-                        label: Text(
-                          _selling ? 'Processing...' : 'PROCESS PAYMENT',
-                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _filteredStock.isEmpty
+              ? const Center(child: Text('No medicines found', style: TextStyle(color: Colors.grey)))
+              : isWide
+                  ? _buildCatalogGrid()
+                  : _buildCatalogList(),
         ),
       ],
     );
+  }
+
+  Widget _buildCatalogGrid() {
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 200,
+        childAspectRatio: 0.95,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: _filteredStock.length,
+      itemBuilder: (context, index) => _buildMedicineCard(_filteredStock[index], isCompact: false),
+    );
+  }
+
+  Widget _buildCatalogList() {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      itemCount: _filteredStock.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final item = _filteredStock[index];
+        return _buildMedicineListTile(item);
+      },
+    );
+  }
+
+  Widget _buildMedicineCard(OwnerStock item, {required bool isCompact}) {
+    final isLow = item.quantity <= item.lowThreshold;
+    final isOut = item.quantity <= 0;
+    return Material(
+      color: _posCard,
+      elevation: 1.5,
+      shadowColor: Colors.black12,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: isOut ? null : () => _addToCart(item),
+        onLongPress: () => _editRow(item),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: _posGreen.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.medication_outlined, color: _posGreen, size: 18),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isOut
+                          ? Colors.red.shade50
+                          : isLow
+                              ? const Color(0xFFFFF3CD)
+                              : const Color(0xFFD1FAE5),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      isOut ? 'Out' : 'Stock: ${item.quantity}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: isOut
+                            ? Colors.red.shade700
+                            : isLow
+                                ? const Color(0xFF92400E)
+                                : _posGreen,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                item.medicineName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                isOut ? 'Unavailable' : 'In stock',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Rs ${item.price}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: _posGreen,
+                      ),
+                    ),
+                  ),
+                  if (!isOut)
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: _posGreen,
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: const Icon(Icons.add, color: Colors.white, size: 16),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMedicineListTile(OwnerStock item) {
+    final isLow = item.quantity <= item.lowThreshold;
+    final isOut = item.quantity <= 0;
+    return Material(
+      color: _posCard,
+      elevation: 1,
+      shadowColor: Colors.black12,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: isOut ? null : () => _addToCart(item),
+        onLongPress: () => _editRow(item),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: _posGreen.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.medication_outlined, color: _posGreen, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.medicineName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: isOut
+                                ? Colors.red.shade50
+                                : isLow
+                                    ? const Color(0xFFFFF3CD)
+                                    : const Color(0xFFD1FAE5),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            isOut ? 'Out of stock' : 'Stock: ${item.quantity}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isOut
+                                  ? Colors.red.shade700
+                                  : isLow
+                                      ? const Color(0xFF92400E)
+                                      : _posGreen,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isOut ? 'Unavailable' : 'In stock',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Rs ${item.price}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: _posGreen,
+                    ),
+                  ),
+                  if (!isOut) ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: _posGreen,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.add, color: Colors.white, size: 18),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderPanel({
+    required bool isWide,
+    VoidCallback? onClose,
+    VoidCallback? onCartChanged,
+  }) {
+    void notifyCart() {
+      onCartChanged?.call();
+      if (onCartChanged == null && mounted) setState(() {});
+    }
+
+    return Container(
+      width: isWide ? 300 : null,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: isWide
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 12,
+                  offset: const Offset(-2, 0),
+                ),
+              ]
+            : null,
+        borderRadius: isWide
+            ? null
+            : const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        children: [
+          // Handle bar for bottom sheet
+          if (!isWide)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(14, isWide ? 14 : 10, 8, 8),
+            child: Row(
+              children: [
+                Icon(Icons.shopping_bag_outlined, color: _posGreen, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Current Order',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                  ),
+                ),
+                if (_cart.isNotEmpty)
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _cart.clear();
+                        _selectedCustomer = null;
+                      });
+                      notifyCart();
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red.shade400,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text('Clear', style: TextStyle(fontSize: 12)),
+                  ),
+                if (onClose != null)
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: onClose,
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+          ),
+          // Customer chip
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: InkWell(
+              onTap: () async {
+                await _pickCustomerForBilling();
+                notifyCart();
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _posBg,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline, size: 18, color: _posGreen),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _selectedCustomer == null
+                          ? Text('Select customer',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600))
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(_selectedCustomer!.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontSize: 12, fontWeight: FontWeight.w700)),
+                                Text(
+                                  _selectedCustomer!.hasMembership
+                                      ? '${_selectedCustomer!.phone} · ${_selectedCustomer!.membershipLabel}'
+                                      : _selectedCustomer!.phone,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                ),
+                              ],
+                            ),
+                    ),
+                    if (_selectedCustomer != null)
+                      GestureDetector(
+                        onTap: () {
+                          setState(() => _selectedCustomer = null);
+                          notifyCart();
+                        },
+                        child: Icon(Icons.close, size: 16, color: Colors.grey.shade500),
+                      )
+                    else
+                      Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade400),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
+          Expanded(
+            child: _cart.isEmpty
+                ? Center(
+                    child: Text('Tap medicines to add',
+                        style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: _cart.length,
+                    itemBuilder: (context, index) {
+                      final item = _cart[index];
+                      final unit = double.tryParse(item.stock.price) ?? 0;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(item.stock.medicineName,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600, fontSize: 13)),
+                                  Text(
+                                    'Rs ${unit.toStringAsFixed(0)} × ${item.quantity}',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _qtyBtn(Icons.remove, () {
+                                  _changeCartQty(item, -1);
+                                  notifyCart();
+                                }),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  child: Text('${item.quantity}',
+                                      style: const TextStyle(fontWeight: FontWeight.w800)),
+                                ),
+                                _qtyBtn(Icons.add, () {
+                                  _changeCartQty(item, 1);
+                                  notifyCart();
+                                }),
+                              ],
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 52,
+                              child: Text(
+                                'Rs ${item.lineTotal.toStringAsFixed(0)}',
+                                textAlign: TextAlign.right,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Subtotal', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                      Text('Rs ${_cartTotal.toStringAsFixed(2)}',
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('TOTAL',
+                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                      Text(
+                        'Rs ${_cartTotal.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                          color: _posGreen,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: ElevatedButton.icon(
+                      onPressed: _cart.isEmpty || _selling
+                          ? null
+                          : () async {
+                              await _completeSale();
+                              notifyCart();
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _posGreen,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      icon: _selling
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.payments_outlined, size: 20),
+                      label: Text(
+                        _selling ? 'Processing...' : 'PROCESS PAYMENT',
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileCartBar() {
+    final count = _cartItemCount;
+    return Material(
+      elevation: 8,
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: InkWell(
+          onTap: count > 0 ? _openMobileCartSheet : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: count > 0 ? _posGreen : Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.shopping_bag_outlined, color: Colors.white, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$count',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        count == 0 ? 'Cart is empty' : 'View current order',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: count == 0 ? Colors.grey.shade500 : Colors.black87,
+                        ),
+                      ),
+                      if (count > 0)
+                        Text(
+                          'Rs ${_cartTotal.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            color: _posGreen,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (count > 0)
+                  ElevatedButton(
+                    onPressed: _selling ? null : () async {
+                      await _completeSale();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _posGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      _selling ? '...' : 'PAY',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openMobileCartSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalContext, setModalState) {
+            void refresh() {
+              setModalState(() {});
+              if (mounted) setState(() {});
+            }
+
+            return DraggableScrollableSheet(
+              initialChildSize: 0.72,
+              minChildSize: 0.45,
+              maxChildSize: 0.95,
+              builder: (_, scrollController) {
+                return _buildOrderPanel(
+                  isWide: false,
+                  onClose: () => Navigator.pop(ctx),
+                  onCartChanged: refresh,
+                );
+              },
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      if (mounted) setState(() {});
+    });
   }
 
   Widget _qtyBtn(IconData icon, VoidCallback onTap) {
@@ -2192,54 +2526,86 @@ SliverGridDelegateWithMaxCrossAxisExtent(
             .where((s) => s.medicineName.toLowerCase().contains(query))
             .toList();
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-          child: TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              hintText: 'Search stock...',
-              prefixIcon: const Icon(Icons.search, size: 20),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () => _searchController.clear(),
-                    )
-                  : null,
-              isDense: true,
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 600;
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search stock...',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () => _searchController.clear(),
+                        )
+                      : null,
+                  isDense: true,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
             ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Text(
-                '${rows.length} medicine${rows.length == 1 ? '' : 's'} in stock',
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _importStockFromExcel,
-                icon: const Icon(Icons.upload_file, size: 18),
-                label: const Text('Import Excel/CSV'),
-              ),
-              const SizedBox(width: 4),
-              FilledButton.icon(
-                onPressed: _addMedicine,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: isWide
+                  ? Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '${rows.length} medicine${rows.length == 1 ? '' : 's'} in stock',
+                            style: TextStyle(
+                                color: Colors.grey.shade700, fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _importStockFromExcel,
+                          icon: const Icon(Icons.upload_file, size: 18),
+                          label: const Text('Import Excel/CSV'),
+                        ),
+                        const SizedBox(width: 4),
+                        FilledButton.icon(
+                          onPressed: _addMedicine,
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Add'),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${rows.length} medicine${rows.length == 1 ? '' : 's'} in stock',
+                            style: TextStyle(
+                                color: Colors.grey.shade700, fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        // Compact icon buttons on phone — full FABs are already at bottom
+                        IconButton(
+                          onPressed: _importStockFromExcel,
+                          icon: const Icon(Icons.upload_file, size: 22),
+                          tooltip: 'Import Excel/CSV',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        IconButton(
+                          onPressed: _addMedicine,
+                          icon: const Icon(Icons.add_circle_outline, size: 22),
+                          tooltip: 'Add medicine',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+            ),
+            const SizedBox(height: 4),
+            Expanded(
           child: rows.isEmpty
               ? RefreshIndicator(
                   onRefresh: _load,
@@ -2311,9 +2677,11 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                     },
                   ),
                 ),
-        ),
-        const SizedBox(height: 72), // space for FABs
-      ],
+            ),
+            const SizedBox(height: 72), // space for FABs
+          ],
+        );
+      },
     );
   }
 
@@ -2864,6 +3232,7 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                           '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
                       return ListTile(
                         dense: true,
+                        onTap: () => _showTransactionDetail(entry),
                         leading: CircleAvatar(
                           backgroundColor: (isDispense ? Colors.red : _posGreen)
                               .withValues(alpha: 0.12),
@@ -2922,6 +3291,222 @@ SliverGridDelegateWithMaxCrossAxisExtent(
     );
   }
 
+  Future<void> _showTransactionDetail(StockTransactionEntry entry) async {
+    final isDispense = entry.isDispense;
+    final color = isDispense ? Colors.red.shade700 : _posGreen;
+    final price = _priceForMedicine(entry.medicineName);
+    final lineTotal = price * entry.quantityDelta.abs();
+    final who = entry.source == 'POS_SYNC'
+        ? 'POS terminal (auto-sync)'
+        : (entry.changedByUsername ?? 'Manual entry');
+    final when = entry.serverTimestamp;
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final fullDate =
+        '${weekdays[when.weekday - 1]}, ${when.day.toString().padLeft(2, '0')}/'
+        '${when.month.toString().padLeft(2, '0')}/${when.year} at '
+        '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}:'
+        '${when.second.toString().padLeft(2, '0')}';
+
+    // Current on-hand quantity for this medicine, if it's still stocked.
+    OwnerStock? currentStock;
+    for (final s in _stock) {
+      if (s.medicineName.toLowerCase() == entry.medicineName.toLowerCase()) {
+        currentStock = s;
+        break;
+      }
+    }
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 12,
+          backgroundColor: Colors.white,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420, maxHeight: 560),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.08),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: color.withValues(alpha: 0.15),
+                        child: Icon(
+                          isDispense
+                              ? Icons.shopping_cart_checkout_rounded
+                              : Icons.inventory_2_rounded,
+                          color: color,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.medicineName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              entry.transactionType,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: color,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          entry.quantityDelta > 0
+                              ? '+${entry.quantityDelta}'
+                              : '${entry.quantityDelta}',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: Icon(Icons.close_rounded, color: Colors.grey.shade500),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
+                ),
+                // Body
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                    child: Column(
+                      children: [
+                        _detailRow(Icons.event_outlined, 'Date & time', fullDate),
+                        _detailRow(Icons.person_outline, 'Performed by', who),
+                        _detailRow(
+                          Icons.sync_alt,
+                          'Source',
+                          entry.source == 'POS_SYNC'
+                              ? 'POS sync'
+                              : 'Manual (dashboard)',
+                        ),
+                        _detailRow(Icons.tag, 'Transaction ID', '#${entry.id}'),
+                        _detailRow(
+                          Icons.sell_outlined,
+                          'Unit price',
+                          'Rs ${price.toStringAsFixed(2)}',
+                        ),
+                        if (isDispense)
+                          _detailRow(
+                            Icons.payments_outlined,
+                            'Line total (est.)',
+                            'Rs ${lineTotal.toStringAsFixed(2)}',
+                          ),
+                        _detailRow(
+                          Icons.inventory_2_outlined,
+                          'Stock on hand now',
+                          currentStock != null
+                              ? '${currentStock.quantity} units'
+                              : 'No longer stocked',
+                        ),
+                        if (currentStock != null)
+                          _detailRow(
+                            Icons.warning_amber_outlined,
+                            'Low-stock alert level',
+                            '${currentStock.lowThreshold} units',
+                          ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _posBg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_outline,
+                                  size: 16, color: Colors.grey.shade600),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  isDispense
+                                      ? 'This entry reduced shelf stock by ${entry.quantityDelta.abs()} unit(s), recorded by the source above.'
+                                      : 'This entry added ${entry.quantityDelta.abs()} unit(s) back to shelf stock (restock/adjustment).',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: Colors.grey.shade700,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.grey.shade600),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 130,
+            child: Text(label,
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   double _priceForMedicine(String name) {
     for (final s in _stock) {
       if (s.medicineName.toLowerCase() == name.toLowerCase()) {
@@ -2962,64 +3547,289 @@ SliverGridDelegateWithMaxCrossAxisExtent(
         .toList();
     final dispenseTx = dayTx.where((t) => t.isDispense).toList();
 
+    // Stock-ledger totals for the day -- always populated from the server,
+    // unlike the local completed-bills log below (which only knows about
+    // sales checked out through this device's own POS tab).
+    final stockRevenue = _estimateRevenue(dispenseTx);
+    final stockUnits = dispenseTx.fold<int>(0, (s, t) => s + t.quantityDelta.abs());
+    final medUnitsToday = <String, int>{};
+    for (final t in dispenseTx) {
+      medUnitsToday[t.medicineName] = (medUnitsToday[t.medicineName] ?? 0) + t.quantityDelta.abs();
+    }
+    final topMedsToday = medUnitsToday.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final cashierUnitsToday = <String, int>{};
+    final cashierRevenueToday = <String, double>{};
+    for (final t in dispenseTx) {
+      final who = t.changedByUsername ?? (t.source == 'POS_SYNC' ? 'POS' : 'Unknown');
+      cashierUnitsToday[who] = (cashierUnitsToday[who] ?? 0) + t.quantityDelta.abs();
+      cashierRevenueToday[who] =
+          (cashierRevenueToday[who] ?? 0) + _priceForMedicine(t.medicineName) * t.quantityDelta.abs();
+    }
+    final cashierRevenueTodayRank = cashierRevenueToday.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
     if (!mounted) return;
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Day report — $dateStr'),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                pharmacy.isEmpty ? 'Pharmacy' : pharmacy,
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-              ),
-              const SizedBox(height: 8),
-              Text('Completed bills (with customer): ${sales.length}'),
-              Text(
-                'Total revenue: Rs ${sales.fold<double>(0, (s, r) => s + r.total).toStringAsFixed(2)}',
-              ),
-              Text(
-                'Units in bills: ${sales.fold<int>(0, (s, r) => s + r.unitCount)}',
-              ),
-              Text('Stock dispense events: ${dispenseTx.length}'),
-              const SizedBox(height: 12),
-              const Text(
-                'PDF includes store name, each bill time, customer name/phone/membership, medicines bought, amounts, and cashier.',
-                style: TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              try {
-                await SalesReportPdf.instance.shareDayReport(
-                  pharmacyName: pharmacy,
-                  dayStart: dayStart,
-                  sales: sales,
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('PDF failed: $e'),
-                    backgroundColor: Colors.red,
+      barrierColor: Colors.black54,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 12,
+          backgroundColor: Colors.white,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header with gradient
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [_posGreen, _posGreenLight],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                   ),
-                );
-              }
-            },
-            icon: const Icon(Icons.picture_as_pdf, size: 18),
-            label: const Text('Download PDF'),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.picture_as_pdf_rounded,
+                            color: Colors.white, size: 28),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Generate Day Report',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        dateStr,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Body
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.local_pharmacy_rounded,
+                              size: 18, color: _posGreen),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              pharmacy.isEmpty ? 'Pharmacy' : pharmacy,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Stats cards
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _pdfStatCard(
+                              icon: Icons.inventory_2_outlined,
+                              label: 'Units sold',
+                              value: '$stockUnits',
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _pdfStatCard(
+                              icon: Icons.payments_outlined,
+                              label: 'Revenue',
+                              value: 'Rs ${stockRevenue.toStringAsFixed(0)}',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _pdfStatCard(
+                              icon: Icons.receipt_long_outlined,
+                              label: 'Dispense events',
+                              value: '${dispenseTx.length}',
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _pdfStatCard(
+                              icon: Icons.person_outline,
+                              label: 'Bills with customer',
+                              value: '${sales.length}',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _posBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 16, color: Colors.grey.shade600),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'PDF includes stock-ledger totals, units dispensed, cashier breakdown, and any completed bills (store name, bill time, customer details, medicines, amounts) logged on this device.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: Colors.grey.shade700,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Actions
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.grey.shade700,
+                            side: BorderSide(color: Colors.grey.shade300),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            try {
+                              await SalesReportPdf.instance.shareDayReport(
+                                pharmacyName: pharmacy,
+                                dayStart: dayStart,
+                                sales: sales,
+                                stockRevenue: stockRevenue,
+                                stockUnitsDispensed: stockUnits,
+                                stockDispenseEvents: dispenseTx.length,
+                                stockCashierRevenue: cashierRevenueTodayRank,
+                                stockCashierUnits: cashierUnitsToday,
+                                stockTopMedicines: topMedsToday,
+                              );
+                            } catch (e) {
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('PDF failed: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.download_rounded, size: 18),
+                          label: const Text('Download PDF'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _posGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _pdfStatCard({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: _posGreen),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade600,
+            ),
           ),
         ],
       ),
@@ -3071,14 +3881,21 @@ SliverGridDelegateWithMaxCrossAxisExtent(
     }
     final cashierRank = cashierUnits.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final cashierRevenueRank = cashierRevenue.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
 
     // Top medicines
     final medUnits = <String, int>{};
+    final medRevenue = <String, double>{};
     for (final t in _transactions.where((t) => t.isDispense)) {
       medUnits[t.medicineName] = (medUnits[t.medicineName] ?? 0) + t.quantityDelta.abs();
+      medRevenue[t.medicineName] = (medRevenue[t.medicineName] ?? 0) +
+          _priceForMedicine(t.medicineName) * t.quantityDelta.abs();
     }
     final topMeds = medUnits.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final totalStockRevenueAll =
+        cashierRevenue.values.fold<double>(0, (a, b) => a + b);
 
     final maxDayUnits = unitsPerDay.values.fold<int>(1, (a, b) => a > b ? a : b);
 
@@ -3089,6 +3906,46 @@ SliverGridDelegateWithMaxCrossAxisExtent(
 
     final unitsChange = pctChange(todayUnits.toDouble(), yUnits.toDouble());
     final revChange = pctChange(todayRevenue, yRevenue);
+
+    // Movement mix — dispensed vs restocked, across all loaded history.
+    final dispenseUnits = _transactions
+        .where((t) => t.isDispense)
+        .fold<int>(0, (s, t) => s + t.quantityDelta.abs());
+    final restockUnits = _transactions
+        .where((t) => !t.isDispense)
+        .fold<int>(0, (s, t) => s + t.quantityDelta.abs());
+
+    // Sales activity by time of day (dispense events, all loaded history).
+    final hourBuckets = List<int>.filled(4, 0);
+    for (final t in _transactions.where((t) => t.isDispense)) {
+      final h = t.serverTimestamp.hour;
+      if (h >= 6 && h < 12) {
+        hourBuckets[0]++;
+      } else if (h >= 12 && h < 17) {
+        hourBuckets[1]++;
+      } else if (h >= 17 && h < 21) {
+        hourBuckets[2]++;
+      } else {
+        hourBuckets[3]++;
+      }
+    }
+    const hourLabels = ['Morning\n6–12', 'Afternoon\n12–5', 'Evening\n5–9', 'Night\n9–6'];
+    final maxHourBucket = hourBuckets.fold<int>(1, (a, b) => a > b ? a : b);
+
+    // Average revenue on days with sales, and the best day within the window.
+    final activeDays = revenuePerDay.values.where((v) => v > 0).length;
+    final avgDailyRevenue = activeDays == 0
+        ? 0.0
+        : revenuePerDay.values.fold<double>(0, (a, b) => a + b) / activeDays;
+    DateTime bestDay = days.first;
+    double bestDayRevenue = -1;
+    for (final d in days) {
+      final r = revenuePerDay[d] ?? 0;
+      if (r > bestDayRevenue) {
+        bestDayRevenue = r;
+        bestDay = d;
+      }
+    }
 
     return RefreshIndicator(
       onRefresh: _loadTransactions,
@@ -3192,6 +4049,156 @@ SliverGridDelegateWithMaxCrossAxisExtent(
               style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
 
           const SizedBox(height: 24),
+          const Text('Revenue trend',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 110,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _RevenueTrendPainter(
+                days.map((d) => revenuePerDay[d] ?? 0).toList(),
+                _posGreen,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: days.map((d) {
+              final label = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][d.weekday - 1];
+              return Expanded(
+                child: Text(label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+              );
+            }).toList(),
+          ),
+
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Rs ${avgDailyRevenue.toStringAsFixed(0)}',
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                      Text('Avg revenue / active day',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                    ],
+                  ),
+                ),
+                Container(width: 1, height: 32, color: Colors.grey.shade200),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        bestDayRevenue <= 0
+                            ? '—'
+                            : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                                [bestDay.weekday - 1],
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+                      ),
+                      Text(
+                        bestDayRevenue <= 0
+                            ? 'Best day this week'
+                            : 'Best day (Rs ${bestDayRevenue.toStringAsFixed(0)})',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          const Text('Stock movement mix',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 4),
+          Text('All loaded history — dispensed vs. restocked units',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              SizedBox(
+                width: 96,
+                height: 96,
+                child: CustomPaint(
+                  painter: _DonutChartPainter(
+                    [dispenseUnits.toDouble(), restockUnits.toDouble()],
+                    [Colors.red.shade400, _posGreenLight],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _legendRow(Colors.red.shade400, 'Dispensed', '$dispenseUnits units'),
+                    const SizedBox(height: 10),
+                    _legendRow(_posGreenLight, 'Restocked', '$restockUnits units'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+          const Text('Sales activity by time of day',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 12),
+          ...List.generate(4, (i) {
+            final frac = maxHourBucket == 0 ? 0.0 : hourBuckets[i] / maxHourBucket;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 84,
+                    child: Text(hourLabels[i],
+                        style: TextStyle(fontSize: 10.5, color: Colors.grey.shade700)),
+                  ),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: frac,
+                        minHeight: 10,
+                        backgroundColor: Colors.grey.shade200,
+                        color: _posGreen,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 26,
+                    child: Text('${hourBuckets[i]}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ),
+            );
+          }),
+
+          const SizedBox(height: 24),
           const Text('Cashier / user ranking',
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
           const SizedBox(height: 8),
@@ -3284,6 +4291,11 @@ SliverGridDelegateWithMaxCrossAxisExtent(
                   pharmacyName: pharmacy,
                   sales: all,
                   generatedAt: DateTime.now(),
+                  stockRevenue: totalStockRevenueAll,
+                  stockUnits: dispenseUnits,
+                  stockCashierRevenue: cashierRevenueRank,
+                  stockTopMedicines: topMeds,
+                  stockMedicineRevenue: medRevenue,
                 );
               } catch (e) {
                 if (!mounted) return;
@@ -3302,6 +4314,22 @@ SliverGridDelegateWithMaxCrossAxisExtent(
           const SizedBox(height: 24),
         ],
       ),
+    );
+  }
+
+  Widget _legendRow(Color color, String label, String value) {
+    return Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        const Spacer(),
+        Text(value, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+      ],
     );
   }
 
@@ -3412,4 +4440,127 @@ class _ActivityRow extends StatelessWidget {
       ),
     );
   }
+}
+/// Smooth revenue-trend sparkline used at the top of the Analytics tab.
+class _RevenueTrendPainter extends CustomPainter {
+  _RevenueTrendPainter(this.values, this.color);
+
+  final List<double> values;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty) return;
+    final maxV = values.fold<double>(0, (a, b) => a > b ? a : b);
+    final safeMax = maxV <= 0 ? 1.0 : maxV;
+    final n = values.length;
+    final stepX = n > 1 ? size.width / (n - 1) : size.width;
+
+    final points = <Offset>[
+      for (var i = 0; i < n; i++)
+        Offset(
+          n > 1 ? i * stepX : size.width / 2,
+          size.height - (values[i] / safeMax) * (size.height - 6) - 3,
+        ),
+    ];
+
+    if (maxV <= 0) {
+      // Flat baseline when there is no data yet, so the chart isn't blank.
+      final flatPaint = Paint()
+        ..color = color.withValues(alpha: 0.3)
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke;
+      final y = size.height - 3;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), flatPaint);
+      return;
+    }
+
+    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length; i++) {
+      final prev = points[i - 1];
+      final cur = points[i];
+      final midX = (prev.dx + cur.dx) / 2;
+      linePath.cubicTo(midX, prev.dy, midX, cur.dy, cur.dx, cur.dy);
+    }
+
+    final fillPath = Path()
+      ..addPath(linePath, Offset.zero)
+      ..lineTo(points.last.dx, size.height)
+      ..lineTo(points.first.dx, size.height)
+      ..close();
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [color.withValues(alpha: 0.28), color.withValues(alpha: 0.0)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawPath(fillPath, fillPaint);
+
+    final linePaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(linePath, linePaint);
+
+    final dotFill = Paint()..color = color;
+    final dotRing = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    for (final p in points) {
+      canvas.drawCircle(p, 3.2, dotFill);
+      canvas.drawCircle(p, 3.2, dotRing);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RevenueTrendPainter oldDelegate) =>
+      oldDelegate.values != values || oldDelegate.color != color;
+}
+
+/// Simple ring/donut chart for a small set of proportions (e.g. dispensed vs
+/// restocked units). Draws a grey ring when there is no data yet.
+class _DonutChartPainter extends CustomPainter {
+  _DonutChartPainter(this.values, this.colors);
+
+  final List<double> values;
+  final List<Color> colors;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final total = values.fold<double>(0, (a, b) => a + b);
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    const strokeWidth = 16.0;
+    final ringRect = Rect.fromCircle(center: center, radius: radius - strokeWidth / 2);
+
+    if (total <= 0) {
+      final emptyPaint = Paint()
+        ..color = Colors.grey.shade300
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth;
+      canvas.drawArc(ringRect, 0, 2 * math.pi, false, emptyPaint);
+      return;
+    }
+
+    double startAngle = -math.pi / 2;
+    for (var i = 0; i < values.length; i++) {
+      if (values[i] <= 0) continue;
+      final sweep = (values[i] / total) * 2 * math.pi;
+      final segmentPaint = Paint()
+        ..color = colors[i % colors.length]
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.butt;
+      canvas.drawArc(ringRect, startAngle, sweep, false, segmentPaint);
+      startAngle += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DonutChartPainter oldDelegate) =>
+      oldDelegate.values != values || oldDelegate.colors != colors;
 }

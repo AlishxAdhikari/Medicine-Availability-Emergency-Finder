@@ -3,6 +3,7 @@ import '../state.dart';
 import '../services/emergency_service.dart';
 import '../services/launcher_service.dart';
 import '../services/location_service.dart';
+import '../widgets/emergency_call.dart';
 import '../widgets/location_notice.dart';
 import '../widgets/service_map.dart';
 
@@ -177,66 +178,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     }
   }
 
-  /// Nepal's national ambulance number.
-  static const String _nationalAmbulanceNumber = '102';
-
-  void _showSOSCallDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.warning, color: Color(0xFFBA1A1A)),
-              SizedBox(width: 8),
-              Text('Emergency Call'),
-            ],
-          ),
-          content: const Text(
-            'This opens your phone\'s dialer with 102 (National Ambulance '
-            'Service) entered. You will still need to press call.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _dial(
-                  _nationalAmbulanceNumber,
-                  subject: 'the national ambulance service',
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFBA1A1A),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Open dialer'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  /// Hands [number] to the system dialer. Silent on success -- the dialer is
-  /// now in front of the user, and a SnackBar saying "Calling..." over the top
-  /// of it is exactly the theatre this screen used to do instead of calling.
-  Future<void> _dial(String number, {required String subject}) async {
-    final result = await LauncherService.instance.dial(number);
-    if (!mounted) return;
-    showLaunchFailure(
-      context,
-      result,
-      missingDataMessage: 'No phone number on file for $subject.',
-      noHandlerMessage: 'No dialer is available on this device. '
-          'Dial $number manually.',
-      failedMessage: 'Could not open the dialer. Dial $number manually.',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -245,8 +186,27 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
 
     // Nothing to draw at all yet -- not even the district chips. Every later
     // load keeps the shell below on screen and spins only the lists.
+    //
+    // The SOS button is drawn anyway. It dials a constant, so it needs nothing
+    // this load is fetching, and gating it behind a request meant that a slow
+    // or unreachable backend hid the one control on this screen that has to
+    // work when everything else has failed.
     if (_bootstrapping) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: SingleChildScrollView(
+          padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SosCallButton(),
+              Padding(
+                padding: EdgeInsets.all(32.0),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return Scaffold(
@@ -301,51 +261,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               onRetry: () => _loadData(refreshLocation: true),
             ),
 
-            // SOS Ambulance Button
-            GestureDetector(
-              onTap: () => _showSOSCallDialog(context),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFBA1A1A),
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFBA1A1A).withValues(alpha: 0.3),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-                child: Column(
-                  children: [
-                    const Icon(
-                      Icons.emergency,
-                      size: 64,
-                      color: Colors.white,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'CALL 102',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'National Ambulance Service',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            // SOS Ambulance Button, with the handful of facts a dispatcher
+            // always asks for sitting right under it.
+            const SosCallButton(),
+            DispatcherInfoCard(location: _location),
             const SizedBox(height: 24),
 
             // Split grid or vertical list -- or, when the load failed, the
@@ -550,7 +469,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             ElevatedButton.icon(
               onPressed: amb.phone.trim().isEmpty
                   ? null
-                  : () => _dial(amb.phone, subject: amb.name),
+                  : () => dialEmergencyNumber(context, amb.phone, subject: amb.name),
               icon: const Icon(Icons.call, size: 16),
               label: const Text('Call Now', style: TextStyle(fontWeight: FontWeight.bold)),
               style: ElevatedButton.styleFrom(
@@ -886,7 +805,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                   child: OutlinedButton.icon(
                     onPressed: bank.phone.trim().isEmpty
                         ? null
-                        : () => _dial(bank.phone, subject: bank.name),
+                        : () => dialEmergencyNumber(context, bank.phone, subject: bank.name),
                     icon: const Icon(Icons.call, size: 16),
                     label: const Text('Call Center',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),

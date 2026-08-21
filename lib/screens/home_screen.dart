@@ -3,6 +3,7 @@ import '../state.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/medical_profile_service.dart';
+import '../widgets/emergency_call.dart';
 import '../widgets/initials_avatar.dart';
 import 'pharmacy_search_screen.dart';
 import 'emergency_screen.dart';
@@ -267,6 +268,11 @@ class _AppShellState extends State<AppShell> {
         ],
       ),
       body: _tabs[_currentIndex],
+      // One tap to the ambulance from wherever the user happens to be, instead
+      // of a tab switch and a scroll. Hidden on the emergency tab itself,
+      // which already leads with a much larger version of the same action.
+      floatingActionButton:
+          _currentIndex == 2 ? null : const SosFloatingButton(),
       drawer: _buildDrawer(context, theme, isDark),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
@@ -310,7 +316,9 @@ class HomeDashboardTab extends StatelessWidget {
     final state = AppStateManager.instance;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
+      // Bottom inset clears the shell's SOS button, which would otherwise
+      // sit on top of the last card at the end of the scroll.
+      padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 88.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
