@@ -450,6 +450,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                           ),
                           const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
+                            // ignore: deprecated_member_use
                             value: membership,
                             decoration: const InputDecoration(
                               labelText: 'Membership',
@@ -1172,14 +1173,13 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                     vatPercent: 13,
                   );
                 } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('PDF failed: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('PDF failed: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
                 }
               },
               icon: const Icon(Icons.picture_as_pdf, size: 18),
@@ -1460,9 +1460,11 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                                         final id = medicine['id'] as int;
                                         return RadioListTile<int>(
                                           value: id,
+                                          // ignore: deprecated_member_use
                                           groupValue: selectedId,
                                           title: Text('${medicine['name']}'),
                                           dense: true,
+                                          // ignore: deprecated_member_use
                                           onChanged: (value) => setDialogState(
                                               () => selectedId = value),
                                         );
@@ -1637,7 +1639,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
             builder: (context, profile, _) {
               return ValueListenableBuilder<String>(
                 valueListenable: AppStateManager.instance.usernameNotifier,
-                builder: (context, username, __) {
+                builder: (context, username, _) {
                   final fullName = profile.fullName.trim();
                   final displayName = fullName.isNotEmpty
                       ? fullName
@@ -1853,8 +1855,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 200,
-        childAspectRatio: 0.95,
+        maxCrossAxisExtent: 220,
+        // Taller cards so multi-line medicine names are not clipped.
+        childAspectRatio: 0.78,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
@@ -1867,7 +1870,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
       itemCount: _filteredStock.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final item = _filteredStock[index];
         return _buildMedicineListTile(item);
@@ -1888,25 +1891,24 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
         onTap: isOut ? null : () => _addToCart(item),
         onLongPress: () => _editRow(item),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
                   Container(
-                    width: 32,
-                    height: 32,
+                    width: 30,
+                    height: 30,
                     decoration: BoxDecoration(
                       color: _posGreen.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(Icons.medication_outlined, color: _posGreen, size: 18),
+                    child: Icon(Icons.medication_outlined, color: _posGreen, size: 17),
                   ),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
                       color: isOut
                           ? Colors.red.shade50
@@ -1930,14 +1932,26 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                item.medicineName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              const SizedBox(height: 10),
+              // Flexible name block — takes remaining space so long names
+              // stay fully readable instead of being crushed by the price row.
+              Expanded(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Text(
+                    item.medicineName,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      height: 1.25,
+                      color: Color(0xFF1A1A1A),
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
                 isOut ? 'Unavailable' : 'In stock',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
@@ -1948,22 +1962,24 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   Expanded(
                     child: Text(
                       'Rs ${item.price}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 14,
+                        fontSize: 15,
                         color: _posGreen,
                       ),
                     ),
                   ),
                   if (!isOut)
                     Container(
-                      width: 26,
-                      height: 26,
+                      width: 28,
+                      height: 28,
                       decoration: BoxDecoration(
                         color: _posGreen,
-                        borderRadius: BorderRadius.circular(7),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(Icons.add, color: Colors.white, size: 16),
+                      child: const Icon(Icons.add, color: Colors.white, size: 17),
                     ),
                 ],
               ),
@@ -2006,11 +2022,16 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   children: [
                     Text(
                       item.medicineName,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14.5,
+                        height: 1.25,
+                        color: Color(0xFF1A1A1A),
+                      ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Row(
                       children: [
                         Container(
@@ -2627,7 +2648,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   onRefresh: _load,
                   child: ListView.separated(
                     itemCount: rows.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final item = rows[index];
                       final isLow = item.quantity <= item.lowThreshold;
@@ -3030,7 +3051,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   onRefresh: _loadCustomers,
                   child: ListView.separated(
                     itemCount: list.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final c = list[index];
                       final selected = _selectedCustomer?.id == c.id ||
@@ -3217,7 +3238,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
                   onRefresh: _loadTransactions,
                   child: ListView.separated(
                     itemCount: _transactions.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final entry = _transactions[index];
                       final isDispense = entry.isDispense;
@@ -4384,63 +4405,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
 
 }
 
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.entry});
-  final StockTransactionEntry entry;
-
-  static String _relativeTime(DateTime timestamp) {
-    final delta = DateTime.now().difference(timestamp);
-    if (delta.inSeconds < 60) return 'just now';
-    if (delta.inMinutes < 60) return '${delta.inMinutes} min ago';
-    if (delta.inHours < 24) {
-      return '${delta.inHours} hour${delta.inHours == 1 ? '' : 's'} ago';
-    }
-    if (delta.inDays < 7) {
-      return '${delta.inDays} day${delta.inDays == 1 ? '' : 's'} ago';
-    }
-    return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
-  }
-
-  String get _attribution {
-    if (entry.source == 'POS_SYNC') return 'POS';
-    return entry.changedByUsername ?? 'Manual';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDispense = entry.isDispense;
-    final deltaColor =
-        isDispense ? theme.colorScheme.error : theme.colorScheme.primary;
-
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: deltaColor.withValues(alpha: 0.12),
-        child: Icon(
-          isDispense ? Icons.arrow_downward : Icons.arrow_upward,
-          color: deltaColor,
-          size: 20,
-        ),
-      ),
-      title: Text(entry.medicineName,
-          style: theme.textTheme.bodyLarge
-              ?.copyWith(fontWeight: FontWeight.w500)),
-      subtitle: Text(
-        '${entry.transactionType.toLowerCase()} · $_attribution · ${_relativeTime(entry.serverTimestamp)}',
-        style: theme.textTheme.bodySmall,
-      ),
-      trailing: Text(
-        entry.quantityDelta > 0
-            ? '+${entry.quantityDelta}'
-            : '${entry.quantityDelta}',
-        style: theme.textTheme.titleMedium?.copyWith(
-          color: deltaColor,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-}
 /// Smooth revenue-trend sparkline used at the top of the Analytics tab.
 class _RevenueTrendPainter extends CustomPainter {
   _RevenueTrendPainter(this.values, this.color);

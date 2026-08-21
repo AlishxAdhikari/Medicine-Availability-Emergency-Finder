@@ -207,16 +207,13 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
     );
 
     try {
-      // Persists blood group/height/weight/allergies/medications/phone and
-      // the first emergency contact to the backend (PUT /medical-id/);
-      // full name/dob/gender/address stay local-only since the backend's
-      // MedicalProfile model doesn't have those fields.
-      await MedicalProfileService.instance.save(updatedProfile);
-      AppStateManager.instance.updateProfile(updatedProfile);
+      // PATCH /auth/medical-id/ — identity + medical fields. Service merges
+      // the server response into app state so Medical ID screen refreshes.
+      final saved = await MedicalProfileService.instance.save(updatedProfile);
 
       if (await BiometricService.instance.isEnabled) {
         await BiometricService.instance.saveUserSnapshot(
-          profileToSnapshot(updatedProfile),
+          profileToSnapshot(saved),
         );
       }
 
@@ -231,13 +228,17 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message), backgroundColor: Theme.of(context).colorScheme.error),
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Could not save changes. Check your connection and try again.'),
+          content: const Text(
+              'Could not save changes. Check your connection and try again.'),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -581,10 +582,27 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
                               initialValue: contact.name,
                               decoration: const InputDecoration(labelText: 'Name'),
                               onChanged: (val) {
-                                _contacts[index] = contact.copyWith(name: val, initials: val.isNotEmpty ? val.substring(0, val.length > 2 ? 2 : val.length).toUpperCase() : '');
+                                // Always copy from the *current* list entry —
+                                // using the build-time `contact` object wiped
+                                // previously typed fields on every keystroke.
+                                final current = _contacts[index];
+                                final initials = val.trim().isEmpty
+                                    ? ''
+                                    : val
+                                        .trim()
+                                        .substring(
+                                            0,
+                                            val.trim().length > 2
+                                                ? 2
+                                                : val.trim().length)
+                                        .toUpperCase();
+                                _contacts[index] = current.copyWith(
+                                  name: val,
+                                  initials: initials,
+                                );
                               },
                               validator: (value) {
-                                if (value == null || value.isEmpty) {
+                                if (value == null || value.trim().isEmpty) {
                                   return 'Name is required';
                                 }
                                 return null;
@@ -592,30 +610,43 @@ class _EditMedicalIdScreenState extends State<EditMedicalIdScreen> {
                             ),
                             const SizedBox(height: 12),
                             DropdownButtonFormField<String>(
-                              initialValue: ['Spouse', 'Parent', 'Sibling', 'Friend'].contains(contact.relationship) ? contact.relationship : 'Friend',
-                              decoration: const InputDecoration(labelText: 'Relationship'),
+                              initialValue: ['Spouse', 'Parent', 'Sibling', 'Friend']
+                                      .contains(contact.relationship)
+                                  ? contact.relationship
+                                  : 'Friend',
+                              decoration: const InputDecoration(
+                                  labelText: 'Relationship'),
                               items: const [
-                                DropdownMenuItem(value: 'Spouse', child: Text('Spouse')),
-                                DropdownMenuItem(value: 'Parent', child: Text('Parent')),
-                                DropdownMenuItem(value: 'Sibling', child: Text('Sibling')),
-                                DropdownMenuItem(value: 'Friend', child: Text('Friend')),
+                                DropdownMenuItem(
+                                    value: 'Spouse', child: Text('Spouse')),
+                                DropdownMenuItem(
+                                    value: 'Parent', child: Text('Parent')),
+                                DropdownMenuItem(
+                                    value: 'Sibling', child: Text('Sibling')),
+                                DropdownMenuItem(
+                                    value: 'Friend', child: Text('Friend')),
                               ],
                               onChanged: (val) {
                                 if (val != null) {
-                                  _contacts[index] = contact.copyWith(relationship: val);
+                                  final current = _contacts[index];
+                                  _contacts[index] =
+                                      current.copyWith(relationship: val);
                                 }
                               },
                             ),
                             const SizedBox(height: 12),
                             TextFormField(
                               initialValue: contact.phoneNumber,
-                              decoration: const InputDecoration(labelText: 'Phone Number'),
+                              decoration: const InputDecoration(
+                                  labelText: 'Phone Number'),
                               keyboardType: TextInputType.phone,
                               onChanged: (val) {
-                                _contacts[index] = contact.copyWith(phoneNumber: val);
+                                final current = _contacts[index];
+                                _contacts[index] =
+                                    current.copyWith(phoneNumber: val);
                               },
                               validator: (value) {
-                                if (value == null || value.isEmpty) {
+                                if (value == null || value.trim().isEmpty) {
                                   return 'Phone number is required';
                                 }
                                 return null;

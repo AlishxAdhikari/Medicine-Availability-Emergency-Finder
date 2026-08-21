@@ -126,6 +126,17 @@ class MedicalProfileView(generics.RetrieveUpdateAPIView):
         profile, _ = MedicalProfile.objects.get_or_create(user=self.request.user)
         return profile
 
+    def perform_update(self, serializer):
+        profile = serializer.save()
+        # Keep Django User name in sync when the medical ID form updates it.
+        full_name = (profile.full_name or '').strip()
+        if full_name:
+            parts = full_name.split(None, 1)
+            user = self.request.user
+            user.first_name = parts[0]
+            user.last_name = parts[1] if len(parts) > 1 else ''
+            user.save(update_fields=['first_name', 'last_name'])
+
 
 class SharedProfileView(generics.RetrieveAPIView):
     """GET /api/v1/auth/medical-id/share/<uuid:share_token>/ — public,

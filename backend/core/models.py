@@ -11,6 +11,13 @@ class MedicalProfile(models.Model):
         on_delete=models.CASCADE,
         related_name='medical_profile',
     )
+    # Identity fields the app edits on the Medical ID screen. These used to
+    # live only in Flutter memory (and were wiped on every cold start / fetch).
+    full_name = models.CharField(max_length=200, blank=True)
+    date_of_birth = models.CharField(max_length=32, blank=True)
+    gender = models.CharField(max_length=32, blank=True)
+    address = models.CharField(max_length=300, blank=True)
+
     blood_group = models.CharField(max_length=5, blank=True)
     height_cm = models.FloatField(null=True, blank=True)
     weight_kg = models.FloatField(null=True, blank=True)

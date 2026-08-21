@@ -45,7 +45,11 @@ class PharmacyService {
     // Fetch each pharmacy's stock in parallel rather than one-by-one --
     // this is a search-results page (max ~20 rows), not a bulk export, so
     // N parallel requests is fine; it would need rethinking at larger scale.
-    final pharmacies = await Future.wait(results.map((json) => _toPharmacy(json)));
+    // Pass the query so matching medicines surface first on the card chips.
+    final q = query.trim();
+    final pharmacies = await Future.wait(
+      results.map((json) => _toPharmacy(json, prioritizeQuery: q)),
+    );
     return pharmacies;
   }
 
@@ -122,13 +126,15 @@ class PharmacyService {
     return found.first;
   }
 
-  Future<app_state.Pharmacy> _toPharmacy(Map<String, dynamic> json) async {
+  Future<app_state.Pharmacy> _toPharmacy(
+    Map<String, dynamic> json, {
+    String prioritizeQuery = '',
+  }) async {
     List<Map<String, dynamic>> items = [];
     try {
       final stock = await _client.get('/pharmacies/${json['id']}/stock/') as List;
-      items = stock
+      final mapped = stock
           .cast<Map<String, dynamic>>()
-          .take(6) // enough to show a few stock chips without cluttering the card
           // `quantity` and `lowThreshold` are carried alongside `inStock`
           // rather than replacing it, because the search screen can render
           // either shape (see StockDisplayMode) and the map/filter code still
@@ -142,6 +148,23 @@ class PharmacyService {
                 'inStock': (row['quantity'] as num) > 0,
               })
           .toList();
+
+      // When the user searched for a medicine, pin matching stock lines to
+      // the front of the chip list so the card actually shows why this
+      // pharmacy matched (instead of an unrelated alphabetical slice).
+      final q = prioritizeQuery.toLowerCase();
+      if (q.isNotEmpty) {
+        mapped.sort((a, b) {
+          final an = (a['name'] as String).toLowerCase();
+          final bn = (b['name'] as String).toLowerCase();
+          final am = an.contains(q) ? 0 : 1;
+          final bm = bn.contains(q) ? 0 : 1;
+          if (am != bm) return am - bm;
+          return an.compareTo(bn);
+        });
+      }
+
+      items = mapped.take(6).toList();
     } catch (_) {
       // Stock lookup failing shouldn't hide the pharmacy itself from
       // results -- just show it with an empty stock list.

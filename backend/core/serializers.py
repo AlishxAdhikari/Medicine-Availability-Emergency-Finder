@@ -137,12 +137,29 @@ class MedicalProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = MedicalProfile
         fields = (
-            'id', 'blood_group', 'height_cm', 'weight_kg', 'allergies',
+            'id',
+            'full_name', 'date_of_birth', 'gender', 'address',
+            'blood_group', 'height_cm', 'weight_kg', 'allergies',
             'chronic_conditions', 'current_medications',
             'emergency_contact_name', 'emergency_contact_phone',
             'phone_number', 'share_token', 'updated_at',
         )
         read_only_fields = ('id', 'share_token', 'updated_at')
+
+    def validate_phone_number(self, value):
+        """Allow clearing the phone, and allow keeping your own number.
+        Only reject when another profile already owns that number."""
+        value = (value or '').strip() or None
+        if not value:
+            return None
+        qs = MedicalProfile.objects.filter(phone_number__iexact=value)
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                'A user with this phone number already exists.'
+            )
+        return value
 
 
 class SharedProfileSerializer(serializers.ModelSerializer):
