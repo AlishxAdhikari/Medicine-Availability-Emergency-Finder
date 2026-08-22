@@ -123,6 +123,32 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  /// Says how a forgotten password actually gets reset today.
+  ///
+  /// Self-service reset needs an endpoint the backend does not have and a
+  /// mail sender it is not configured for; until both exist, an administrator
+  /// resetting the account through the Django admin is the real answer, and
+  /// the screen should say so rather than imply a flow that isn't there.
+  void _showPasswordHelp(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Forgot your password?'),
+        content: const Text(
+          'MedAlert cannot reset passwords from the app yet. Ask your '
+          'MedAlert administrator to reset it for you, then sign in with '
+          'the new password.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -348,12 +374,16 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               const SizedBox(height: 8),
 
+                              // A "Forgot Password?" link used to sit here and
+                              // push /forgot_password, a route that was never
+                              // registered -- tapping it threw. There is no
+                              // reset endpoint on the backend either, so the
+                              // honest thing is to say who can reset it rather
+                              // than offer a door that opens onto nothing.
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: TextButton(
-                                  onPressed: () {
-                                    Navigator.pushNamed(context, '/forgot_password');
-                                  },
+                                  onPressed: () => _showPasswordHelp(context),
                                   style: TextButton.styleFrom(
                                     padding: EdgeInsets.zero,
                                     minimumSize: Size.zero,
