@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -333,6 +335,164 @@ class DispatcherInfoCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// How long the shake countdown gives the user to cancel before the dialer
+/// opens. Long enough to notice and stop a pocket shake, short enough that
+/// someone who meant it isn't standing there watching a number tick.
+const Duration kSosCountdown = Duration(seconds: 5);
+
+/// True while a countdown is on screen, so a shake that is still producing
+/// jolts -- or a second one arriving mid-count -- cannot stack a second
+/// dialog on top of the first.
+bool _countdownVisible = false;
+
+/// Shows the shake-triggered countdown to [kNationalAmbulanceNumber].
+///
+/// The gesture is unlike the SOS button in one way that matters: nobody
+/// aimed at it. So the confirmation is inverted -- the call proceeds on its
+/// own and the user acts to *stop* it, which is what someone who is hurt and
+/// shaking the phone one-handed needs, while still giving a phone jostled in
+/// a bag five seconds to be caught.
+///
+/// [onExpire] exists so tests can observe the outcome without a dialer; the
+/// default is the same [dialEmergencyNumber] path the SOS button uses.
+Future<void> showSosCountdown(
+  BuildContext context, {
+  Future<void> Function(BuildContext context)? onExpire,
+}) async {
+  if (_countdownVisible) return;
+  _countdownVisible = true;
+
+  final expire = onExpire ??
+      (BuildContext ctx) => dialEmergencyNumber(
+            ctx,
+            kNationalAmbulanceNumber,
+            subject: 'the national ambulance service',
+          );
+
+  try {
+    final proceed = await showDialog<bool>(
+      context: context,
+      // Neither a stray tap on the barrier nor a back press should be able to
+      // cancel: cancelling is a decision, and the button says so.
+      barrierDismissible: false,
+      builder: (dialogContext) => const PopScope(
+        canPop: false,
+        child: _SosCountdownDialog(),
+      ),
+    );
+
+    if (proceed == true && context.mounted) await expire(context);
+  } finally {
+    _countdownVisible = false;
+  }
+}
+
+/// The countdown itself. Pops `true` when it runs out, `false` on Cancel.
+class _SosCountdownDialog extends StatefulWidget {
+  const _SosCountdownDialog();
+
+  @override
+  State<_SosCountdownDialog> createState() => _SosCountdownDialogState();
+}
+
+class _SosCountdownDialogState extends State<_SosCountdownDialog> {
+  static const _red = Color(0xFFBA1A1A);
+
+  int _remaining = kSosCountdown.inSeconds;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (_remaining > 1) {
+        setState(() => _remaining--);
+        return;
+      }
+      _timer?.cancel();
+      Navigator.of(context).pop(true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Dialog(
+      backgroundColor: _red,
+      insetPadding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.emergency, size: 56, color: Colors.white),
+            const SizedBox(height: 12),
+            const Text(
+              'Calling $kNationalAmbulanceNumber',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '$_remaining',
+              style: const TextStyle(
+                fontSize: 72,
+                height: 1,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Detected a shake. Your dialer will open with '
+              '$kNationalAmbulanceNumber entered.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.85),
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  _timer?.cancel();
+                  Navigator.of(context).pop(false);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: _red,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
