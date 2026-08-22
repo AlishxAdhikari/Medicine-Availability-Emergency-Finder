@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../state.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
+import '../services/display_preferences.dart';
 import '../services/medical_profile_service.dart';
+import '../services/shake_detector.dart';
 import '../widgets/emergency_call.dart';
 import '../widgets/initials_avatar.dart';
 import 'pharmacy_search_screen.dart';
@@ -16,8 +18,10 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _currentIndex = 0;
+
+  final ShakeDetector _shakeDetector = ShakeDetector();
 
   final List<Widget> _tabs = [
     const HomeDashboardTab(),
@@ -38,6 +42,49 @@ class _AppShellState extends State<AppShell> {
     MedicalProfileService.instance.fetch().catchError((_) {
       return AppStateManager.instance.userProfileNotifier.value;
     });
+
+    // The shell is where the gesture belongs: it is mounted for every tab,
+    // which is the same reach the SOS button has.
+    WidgetsBinding.instance.addObserver(this);
+    DisplayPreferences.instance.shakeForSosNotifier
+        .addListener(_syncShakeDetector);
+    _syncShakeDetector();
+  }
+
+  @override
+  void dispose() {
+    DisplayPreferences.instance.shakeForSosNotifier
+        .removeListener(_syncShakeDetector);
+    WidgetsBinding.instance.removeObserver(this);
+    _shakeDetector.stop();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // No point holding the accelerometer open behind another app -- and a
+    // countdown nobody can see is worse than no countdown at all.
+    _syncShakeDetector();
+  }
+
+  /// Runs the detector exactly when it should be running: the preference is
+  /// on and the app is in front. Both inputs can change at any time, so this
+  /// is written to be safe to call repeatedly.
+  void _syncShakeDetector() {
+    final wanted = DisplayPreferences.instance.shakeForSos &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.paused &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.detached;
+
+    if (wanted) {
+      _shakeDetector.start(onShake: _onShake);
+    } else {
+      _shakeDetector.stop();
+    }
+  }
+
+  void _onShake() {
+    if (!mounted) return;
+    showSosCountdown(context);
   }
 
   void navigateToTab(int index) {
@@ -198,6 +245,19 @@ class _AppShellState extends State<AppShell> {
               },
             ),
             const Divider(),
+            ValueListenableBuilder<bool>(
+              valueListenable: DisplayPreferences.instance.shakeForSosNotifier,
+              builder: (context, enabled, _) => SwitchListTile(
+                value: enabled,
+                onChanged: DisplayPreferences.instance.setShakeForSos,
+                secondary: const Icon(Icons.vibration),
+                title: const Text('Shake for emergency call'),
+                subtitle: const Text(
+                  'Shake your phone hard to start a call to '
+                  '$kNationalAmbulanceNumber',
+                ),
+              ),
+            ),
             ListTile(
               leading: Icon(
                 isDark ? Icons.light_mode : Icons.dark_mode,
