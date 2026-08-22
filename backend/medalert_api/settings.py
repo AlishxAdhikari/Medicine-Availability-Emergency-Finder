@@ -13,22 +13,35 @@ from datetime import timedelta
 from pathlib import Path
 
 from decouple import config
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config(
-    'SECRET_KEY',
-    default='django-insecure-#-4iijzk*&b_fuj%21q%l6tmrcnm2tn_3@kehex05i2&b6_r6-',
-)
+# Defaults to False so that forgetting to set it cannot expose stack traces
+# and settings to the internet. Local development sets DEBUG=True in .env --
+# see .env.example.
+DEBUG = config('DEBUG', default=False, cast=bool)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+# SECURITY WARNING: keep the secret key used in production secret!
+#
+# The development fallback is only reachable with DEBUG on. It is a key that
+# is published in this repository, so anyone could mint their own JWTs with
+# it; a deployment that forgets to set SECRET_KEY must fail loudly at startup
+# rather than quietly sign tokens with a public key.
+SECRET_KEY = config('SECRET_KEY', default='')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured(
+            'SECRET_KEY must be set when DEBUG is False. '
+            'Generate one with: python -c '
+            '"from django.core.management.utils import get_random_secret_key; '
+            'print(get_random_secret_key())"'
+        )
+    SECRET_KEY = 'django-insecure-dev-only-key-not-used-when-debug-is-false'
 
 # Must include the address phones actually type. A device hitting
 # http://192.168.1.64:8000 sends "Host: 192.168.1.64:8000", and Django rejects
@@ -192,8 +205,13 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
     ],
+    # Authenticated by default, so a view added without its own
+    # permission_classes fails closed instead of silently going public. The
+    # endpoints that are meant to be open -- pharmacy/medicine lookup, blood
+    # banks, ambulances, register/login, the health check and the shared
+    # medical-ID link -- each say AllowAny explicitly.
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
@@ -241,3 +259,28 @@ else:
         default='',
         cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
     )
+
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
+
+# Cookies are not how the app authenticates -- it sends a Bearer token -- but
+# the Django admin does use them, and marking them secure costs nothing.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+# Deliberately its own switch rather than `not DEBUG`: the test suite runs
+# with DEBUG off, and SECURE_SSL_REDIRECT would turn every test request into
+# a 301 to https. Turn it on in the environment once the deployment actually
+# terminates TLS.
+HTTPS_ONLY = config('HTTPS_ONLY', default=False, cast=bool)
+if HTTPS_ONLY:
+    SECURE_SSL_REDIRECT = True
+    # Behind a reverse proxy Django only sees plain http; without this it
+    # would redirect forever.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_HSTS_SECONDS = 31536000  # one year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
