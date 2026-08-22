@@ -20,6 +20,7 @@ class DisplayPreferences {
 
   static const _storage = FlutterSecureStorage();
   static const _stockDisplayKey = 'stock_display_mode';
+  static const _shakeForSosKey = 'shake_for_sos';
 
   /// Defaults to [StockDisplayMode.availability] -- the behaviour every
   /// existing install already has, so upgrading doesn't silently start
@@ -28,6 +29,15 @@ class DisplayPreferences {
       ValueNotifier<StockDisplayMode>(StockDisplayMode.availability);
 
   StockDisplayMode get stockDisplayMode => stockDisplayModeNotifier.value;
+
+  /// Whether shaking the phone starts an emergency call. Defaults to on: the
+  /// gesture is the one part of the app meant to work when the user cannot
+  /// look at the screen, and a safety feature nobody knew to switch on is no
+  /// safety feature. The countdown is what protects against a pocket shake;
+  /// this switch is for the user whose commute keeps tripping it anyway.
+  final ValueNotifier<bool> shakeForSosNotifier = ValueNotifier<bool>(true);
+
+  bool get shakeForSos => shakeForSosNotifier.value;
 
   bool _loaded = false;
 
@@ -45,6 +55,9 @@ class DisplayPreferences {
       }
       // Anything else (null, or a mode written by a newer build) leaves the
       // default in place.
+
+      final shake = await _storage.read(key: _shakeForSosKey);
+      if (shake == 'false') shakeForSosNotifier.value = false;
     } catch (_) {
       // Keep the default.
     }
@@ -59,6 +72,19 @@ class DisplayPreferences {
     _loaded = true;
     try {
       await _storage.write(key: _stockDisplayKey, value: mode.name);
+    } catch (_) {
+      // The choice still applies for this session.
+    }
+  }
+
+  /// Applies [enabled] immediately and persists it, same contract as
+  /// [setStockDisplayMode].
+  Future<void> setShakeForSos(bool enabled) async {
+    if (shakeForSosNotifier.value == enabled && _loaded) return;
+    shakeForSosNotifier.value = enabled;
+    _loaded = true;
+    try {
+      await _storage.write(key: _shakeForSosKey, value: '$enabled');
     } catch (_) {
       // The choice still applies for this session.
     }
