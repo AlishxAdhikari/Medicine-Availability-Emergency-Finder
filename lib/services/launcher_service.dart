@@ -41,6 +41,23 @@ class LauncherService {
     return _launch(Uri(scheme: 'tel', path: number));
   }
 
+  /// Opens the SMS composer addressed to [rawNumbers] with [body] filled in.
+  ///
+  /// Composes rather than sends, for the same reason [dial] only pre-fills:
+  /// the message goes out when the user presses send, so a mis-tap cannot
+  /// text someone's family that they are in an emergency. Sending it
+  /// ourselves would need SEND_SMS, which the manifest does not request.
+  ///
+  /// Returns [LaunchFailure.missingData] when none of [rawNumbers] holds a
+  /// usable number -- a profile whose emergency contacts were saved without
+  /// phone numbers, which the UI needs to report rather than open a blank
+  /// composer.
+  Future<LaunchFailure> sms(List<String?> rawNumbers, String body) async {
+    final uri = smsUriForTest(rawNumbers, body);
+    if (uri == null) return LaunchFailure.missingData;
+    return _launch(uri);
+  }
+
   /// Opens turn-by-turn directions to [lat]/[lng] in the platform's maps app.
   ///
   /// [label] is passed through so the destination shows the pharmacy's name
@@ -126,6 +143,26 @@ class LauncherService {
     if (digits.isEmpty) return null;
 
     return hasPlus ? '+$digits' : digits;
+  }
+
+  /// Builds the `sms:` URI [sms] launches, or null when no recipient survives
+  /// sanitising. Exposed because the recipient list and the encoded body are
+  /// the parts worth asserting on.
+  ///
+  /// Recipients are comma-separated, which both Android and iOS accept for a
+  /// group composer, and de-duplicated so a number saved twice in different
+  /// formats does not appear twice in the To field.
+  static Uri? smsUriForTest(List<String?> rawNumbers, String body) {
+    final numbers = <String>{
+      for (final raw in rawNumbers) ?_sanitizePhone(raw),
+    };
+    if (numbers.isEmpty) return null;
+
+    // Built by hand rather than with Uri's queryParameters, which encodes a
+    // space as "+" -- literal plus signs in a text message body.
+    return Uri.parse(
+      'sms:${numbers.join(',')}?body=${Uri.encodeComponent(body)}',
+    );
   }
 
   /// Exposed for tests -- the sanitizer is the part with real edge cases.

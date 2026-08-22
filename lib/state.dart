@@ -180,8 +180,18 @@ enum StockDisplayMode {
 class Ambulance {
   final String name;
   final String location;
-  final String distance;
-  final bool isAvailable;
+
+  /// Government / private / NGO. This sat in a field called `distance` and
+  /// rendered in the UI's distance slot, which made a category look like a
+  /// measurement -- AmbulanceProvider has no coordinates to measure from.
+  final String serviceType;
+
+  /// Whether the provider runs a 24-hour line. Named for the field the
+  /// backend actually has: it used to be called `isAvailable` and drove an
+  /// "Available / Busy" badge, which claimed live dispatch status the API
+  /// has never reported.
+  final bool isOpen24Hours;
+
   // AmbulanceProvider has no lat/lng in the backend -- these are matched by
   // district, not coordinates -- so there is deliberately no position here and
   // ambulances never appear on a map. `phone` is required on that model, so
@@ -191,8 +201,8 @@ class Ambulance {
   Ambulance({
     required this.name,
     required this.location,
-    required this.distance,
-    required this.isAvailable,
+    required this.serviceType,
+    required this.isOpen24Hours,
     this.phone = '',
   });
 }

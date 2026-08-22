@@ -158,9 +158,9 @@ class EmergencyService {
   }
 
   app_state.Ambulance _toAmbulance(Map<String, dynamic> json) {
-    // No lat/lng on AmbulanceProvider (matches the spec -- these are
-    // matched by district, not exact coordinates), so the "distance" slot
-    // shows the service type instead of a real distance.
+    // No lat/lng on AmbulanceProvider (matches the spec -- these are matched
+    // by district, not exact coordinates), so there is no distance to show
+    // and the card names the service type as a service type.
     final serviceType = json['service_type'] as String;
     final label = serviceType.isNotEmpty
         ? serviceType[0].toUpperCase() + serviceType.substring(1)
@@ -169,15 +169,15 @@ class EmergencyService {
     return app_state.Ambulance(
       name: json['name'] as String,
       location: json['district'] as String,
-      distance: label,
+      serviceType: label,
       // Required (not blank=True) on AmbulanceProvider, so this should always
       // be present -- defaulted anyway so a serializer change can't crash the
       // screen, and the Call button reports "no number on file" instead.
       phone: json['phone'] as String? ?? '',
-      // PLACEHOLDER: there's no real-time "available now" field on the
-      // backend yet, so this approximates availability with is_24_hour.
-      // Revisit if/when the backend gets a real availability status.
-      isAvailable: json['is_24_hour'] as bool,
+      // The backend has no real-time "available now" status, so the UI says
+      // what this genuinely is -- a 24-hour line or not -- rather than
+      // dressing it up as live availability.
+      isOpen24Hours: json['is_24_hour'] as bool,
     );
   }
 

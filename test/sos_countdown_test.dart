@@ -4,15 +4,24 @@ import 'package:medalert/widgets/emergency_call.dart';
 
 /// Pumps a screen whose only job is a button that opens the countdown, so the
 /// dialog is shown the way the shell shows it (with a real Navigator above it).
-Future<int Function()> _openCountdown(WidgetTester tester) async {
+Future<({int Function() dialled, int Function() alerted})> _openCountdown(
+  WidgetTester tester,
+) async {
   var dialled = 0;
+  var alerted = 0;
   await tester.pumpWidget(MaterialApp(
     home: Scaffold(
       body: Builder(
         builder: (context) => ElevatedButton(
-          onPressed: () => showSosCountdown(context, onExpire: (_) async {
-            dialled++;
-          }),
+          onPressed: () => showSosCountdown(
+            context,
+            onExpire: (_) async {
+              dialled++;
+            },
+            onAlertContacts: (_) async {
+              alerted++;
+            },
+          ),
           child: const Text('shake'),
         ),
       ),
@@ -20,7 +29,7 @@ Future<int Function()> _openCountdown(WidgetTester tester) async {
   ));
   await tester.tap(find.text('shake'));
   await tester.pump();
-  return () => dialled;
+  return (dialled: () => dialled, alerted: () => alerted);
 }
 
 void main() {
@@ -36,7 +45,7 @@ void main() {
   });
 
   testWidgets('Cancel closes it without dialling', (tester) async {
-    final dialled = await _openCountdown(tester);
+    final counts = await _openCountdown(tester);
 
     await tester.pump(const Duration(seconds: 1));
     await tester.tap(find.text('Cancel'));
@@ -45,16 +54,16 @@ void main() {
     expect(find.text('Cancel'), findsNothing);
     // Well past the point the countdown would have expired.
     await tester.pump(kSosCountdown);
-    expect(dialled(), 0);
+    expect(counts.dialled(), 0);
   });
 
   testWidgets('dials once when the count runs out', (tester) async {
-    final dialled = await _openCountdown(tester);
+    final counts = await _openCountdown(tester);
 
     await tester.pump(kSosCountdown);
     await tester.pumpAndSettle();
 
-    expect(dialled(), 1);
+    expect(counts.dialled(), 1);
     expect(find.text('Cancel'), findsNothing);
   });
 
@@ -82,5 +91,31 @@ void main() {
 
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('texting the contacts stops the call', (tester) async {
+    final counts = await _openCountdown(tester);
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('Text my contacts instead'));
+    await tester.pumpAndSettle();
+
+    expect(counts.alerted(), 1);
+
+    // Well past the point the countdown would have expired: choosing to text
+    // must not also open the dialer on top of the composer.
+    await tester.pump(kSosCountdown);
+    expect(counts.dialled(), 0);
+    expect(find.text('Cancel'), findsNothing);
+  });
+
+  testWidgets('letting it run out dials and texts nobody', (tester) async {
+    final counts = await _openCountdown(tester);
+
+    await tester.pump(kSosCountdown);
+    await tester.pumpAndSettle();
+
+    expect(counts.dialled(), 1);
+    expect(counts.alerted(), 0);
   });
 }

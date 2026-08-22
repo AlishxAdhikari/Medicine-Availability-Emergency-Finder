@@ -146,6 +146,48 @@ class SosCallButton extends StatelessWidget {
   }
 }
 
+/// Sits under the SOS block: the same emergency, told to the people who would
+/// come for you rather than to a dispatcher.
+class AlertContactsButton extends StatelessWidget {
+  const AlertContactsButton({super.key, required this.location});
+
+  /// The fix the emergency screen has already resolved, so the message does
+  /// not wait on a second lookup.
+  final UserLocation? location;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<UserProfile>(
+      valueListenable: AppStateManager.instance.userProfileNotifier,
+      builder: (context, profile, _) {
+        final reachable = contactsWithNumbers(profile.emergencyContacts);
+        final subject = switch (reachable.length) {
+          0 => 'Alert my contacts',
+          1 => 'Alert ${reachable.first.name}',
+          final count => 'Alert my $count contacts',
+        };
+
+        return SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => alertEmergencyContacts(
+              context,
+              location: location,
+            ),
+            icon: const Icon(Icons.sms_outlined),
+            label: Text(subject),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFBA1A1A),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              side: const BorderSide(color: Color(0xFFBA1A1A), width: 1.4),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// The small SOS button carried on the app shell, so the emergency call is one
 /// tap from every tab instead of a tab switch plus a scroll.
 class SosFloatingButton extends StatelessWidget {
@@ -165,6 +207,122 @@ class SosFloatingButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The facts a dispatcher or a relative needs, as lines of text.
+///
+/// Shared by the "Copy" button on [DispatcherInfoCard] and by
+/// [emergencyAlertMessage] so a copied block and a texted one can never
+/// disagree about the patient.
+String emergencyDetailsText(UserProfile profile) {
+  final buffer = StringBuffer();
+
+  final name = profile.fullName.trim();
+  if (name.isNotEmpty) buffer.write('Name: $name\n');
+
+  final bloodGroup = profile.bloodGroup.trim();
+  if (bloodGroup.isNotEmpty) buffer.write('Blood group: $bloodGroup\n');
+
+  final allergies =
+      profile.allergies.where((a) => a.trim().isNotEmpty).toList();
+  buffer.write(
+    'Allergies: ${allergies.isEmpty ? 'None recorded' : allergies.join(', ')}',
+  );
+
+  return buffer.toString();
+}
+
+/// The message sent to the user's own emergency contacts.
+///
+/// Written to be read by a frightened relative on a lock screen, so it opens
+/// with the request rather than a header, and ends with a tappable map link
+/// instead of coordinates they would have to retype. An approximate fix is
+/// spelled out in words: sending someone to a city-centre guess as though it
+/// were a street address is worse than telling them to call.
+String emergencyAlertMessage({
+  required UserProfile profile,
+  required UserLocation? location,
+}) {
+  final buffer = StringBuffer('I need help. Sent from MedAlert.\n\n')
+    ..write(emergencyDetailsText(profile));
+
+  if (location != null) {
+    buffer
+      ..write('\n\nMy location: ')
+      ..write('${location.latitude.toStringAsFixed(5)}, '
+          '${location.longitude.toStringAsFixed(5)}')
+      ..write('\nhttps://www.google.com/maps/search/?api=1&query='
+          '${location.latitude},${location.longitude}');
+    if (!location.isPrecise) {
+      buffer.write(
+        '\n(This position is approximate -- GPS was unavailable. Please call '
+        'me to find out where I am.)',
+      );
+    }
+  }
+
+  return buffer.toString();
+}
+
+/// Opens the SMS composer to the user's emergency contacts, pre-filled with
+/// who they are, what a paramedic needs to know, and where they are.
+///
+/// Calling 102 and telling your family are both things that have to happen,
+/// and only one of them can be done while unconscious. This is the other one.
+///
+/// [location] is passed in where the screen already has a fix (the emergency
+/// screen resolves one for its blood-bank distances); a shake has none, so
+/// this falls back to [LocationService], which returns a labelled Kathmandu
+/// guess rather than nothing when GPS is unavailable -- and the message says
+/// which of the two it is.
+Future<void> alertEmergencyContacts(
+  BuildContext context, {
+  UserLocation? location,
+}) async {
+  final profile = AppStateManager.instance.userProfileNotifier.value;
+  final contacts = contactsWithNumbers(profile.emergencyContacts);
+
+  if (contacts.isEmpty) {
+    // Not a launch failure -- there is nothing wrong with the device. The
+    // profile is missing something only the user can add, so say that.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'No emergency contact has a phone number yet. Add one on your '
+          'Medical ID.',
+        ),
+      ),
+    );
+    return;
+  }
+
+  final where = location ?? await LocationService.instance.current();
+  if (!context.mounted) return;
+
+  final result = await LauncherService.instance.sms(
+    [for (final contact in contacts) contact.phoneNumber],
+    emergencyAlertMessage(profile: profile, location: where),
+  );
+  if (!context.mounted) return;
+
+  showLaunchFailure(
+    context,
+    result,
+    missingDataMessage: 'No emergency contact has a usable phone number.',
+    noHandlerMessage: 'No messaging app is available on this device.',
+    failedMessage: 'Could not open your messaging app.',
+  );
+}
+
+/// The subset of [contacts] that can actually be reached by text.
+///
+/// A contact saved without a phone number is real in this app -- the editor
+/// allows it -- and silently addressing a message to nobody is the failure
+/// this filter exists to make visible.
+List<EmergencyContact> contactsWithNumbers(List<EmergencyContact> contacts) {
+  return contacts
+      .where((c) => LauncherService.sanitizePhoneForTest(c.phoneNumber) != null)
+      .toList();
 }
 
 /// What the dispatcher will ask for, on screen at the moment of the call.
@@ -278,19 +436,8 @@ class DispatcherInfoCard extends StatelessWidget {
   /// other end of a message, not scanned on screen: it names the patient and
   /// spells out an approximate fix in words rather than a parenthetical.
   String summaryText(UserProfile profile) {
-    final buffer = StringBuffer('MedAlert emergency details');
-
-    final name = profile.fullName.trim();
-    if (name.isNotEmpty) buffer.write('\nName: $name');
-
-    final bloodGroup = profile.bloodGroup.trim();
-    if (bloodGroup.isNotEmpty) buffer.write('\nBlood group: $bloodGroup');
-
-    final allergies =
-        profile.allergies.where((a) => a.trim().isNotEmpty).toList();
-    final allergyText =
-        allergies.isEmpty ? 'None recorded' : allergies.join(', ');
-    buffer.write('\nAllergies: $allergyText');
+    final buffer = StringBuffer('MedAlert emergency details\n')
+      ..write(emergencyDetailsText(profile));
 
     final where = location;
     if (where != null) {
@@ -358,11 +505,14 @@ bool _countdownVisible = false;
 /// shaking the phone one-handed needs, while still giving a phone jostled in
 /// a bag five seconds to be caught.
 ///
-/// [onExpire] exists so tests can observe the outcome without a dialer; the
-/// default is the same [dialEmergencyNumber] path the SOS button uses.
+/// [onExpire] and [onAlertContacts] exist so tests can observe the outcome
+/// without a dialer or an SMS app; the defaults are the same
+/// [dialEmergencyNumber] and [alertEmergencyContacts] paths the buttons on the
+/// emergency screen use.
 Future<void> showSosCountdown(
   BuildContext context, {
   Future<void> Function(BuildContext context)? onExpire,
+  Future<void> Function(BuildContext context)? onAlertContacts,
 }) async {
   if (_countdownVisible) return;
   _countdownVisible = true;
@@ -373,9 +523,10 @@ Future<void> showSosCountdown(
             kNationalAmbulanceNumber,
             subject: 'the national ambulance service',
           );
+  final alert = onAlertContacts ?? alertEmergencyContacts;
 
   try {
-    final proceed = await showDialog<bool>(
+    final outcome = await showDialog<SosOutcome>(
       context: context,
       // Neither a stray tap on the barrier nor a back press should be able to
       // cancel: cancelling is a decision, and the button says so.
@@ -386,13 +537,29 @@ Future<void> showSosCountdown(
       ),
     );
 
-    if (proceed == true && context.mounted) await expire(context);
+    if (!context.mounted) return;
+    switch (outcome) {
+      case SosOutcome.dial:
+        await expire(context);
+      case SosOutcome.alertContacts:
+        await alert(context);
+      case SosOutcome.cancelled:
+      case null:
+        break;
+    }
   } finally {
     _countdownVisible = false;
   }
 }
 
-/// The countdown itself. Pops `true` when it runs out, `false` on Cancel.
+/// How a countdown ended.
+///
+/// [alertContacts] stops the call: the composer is another app, and letting
+/// the dialer open on top of a half-written message would lose the message.
+/// Texting instead of calling is a choice, so the button says "instead".
+enum SosOutcome { dial, cancelled, alertContacts }
+
+/// The countdown itself. Pops a [SosOutcome] saying how it ended.
 class _SosCountdownDialog extends StatefulWidget {
   const _SosCountdownDialog();
 
@@ -416,7 +583,7 @@ class _SosCountdownDialogState extends State<_SosCountdownDialog> {
         return;
       }
       _timer?.cancel();
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(SosOutcome.dial);
     });
   }
 
@@ -475,7 +642,7 @@ class _SosCountdownDialogState extends State<_SosCountdownDialog> {
               child: ElevatedButton(
                 onPressed: () {
                   _timer?.cancel();
-                  Navigator.of(context).pop(false);
+                  Navigator.of(context).pop(SosOutcome.cancelled);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
@@ -489,6 +656,21 @@ class _SosCountdownDialogState extends State<_SosCountdownDialog> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+              ),
+            ),
+            // Someone who cannot speak needs the other half of an emergency:
+            // telling the people who would come for them. It stops the clock,
+            // because the composer is a different app and the dialer opening
+            // over a half-written message would lose it.
+            TextButton(
+              onPressed: () {
+                _timer?.cancel();
+                Navigator.of(context).pop(SosOutcome.alertContacts);
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: const Text(
+                'Text my contacts instead',
+                style: TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
           ],

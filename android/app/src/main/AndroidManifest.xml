@@ -21,7 +21,7 @@
          iOS counterpart is NSAllowsLocalNetworking in ios/Runner/Info.plist.
          Both should be removed once the backend is served over HTTPS. -->
     <application
-        android:label="medalert"
+        android:label="MedAlert"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
@@ -67,6 +67,17 @@
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
+        </intent>
+        <!-- The emergency-contact alert composes an SMS. Like DIAL above it
+             only opens the composer -- SEND_SMS is deliberately not
+             requested, so the message goes out when the user presses send. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="sms"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO"/>
+            <data android:scheme="smsto"/>
         </intent>
     </queries>
 </manifest>

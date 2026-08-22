@@ -265,8 +265,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             ),
 
             // SOS Ambulance Button, with the handful of facts a dispatcher
-            // always asks for sitting right under it.
+            // always asks for sitting right under it, then the other half of
+            // an emergency: telling the people who would come for you.
             const SosCallButton(),
+            const SizedBox(height: 10),
+            AlertContactsButton(location: _location),
             DispatcherInfoCard(location: _location),
             const SizedBox(height: 24),
 
@@ -452,7 +455,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${amb.location} · ${amb.distance}',
+                      amb.serviceType.isEmpty
+                          ? amb.location
+                          : '${amb.location} · ${amb.serviceType}',
                       style: TextStyle(
                         fontSize: 12,
                         color: theme.colorScheme.onSurfaceVariant,
@@ -461,34 +466,42 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                   ],
                 ),
               ),
+              // "24/7" or "Daytime hours", not "Available / Busy": the API
+              // reports whether the provider runs a round-the-clock line, and
+              // never whether an ambulance is free right now. Neither state is
+              // an error, so daytime-only is neutral rather than red -- a
+              // number worth trying, just not at 3am.
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: amb.isAvailable
+                  color: amb.isOpen24Hours
                       ? const Color(0xFF00897B).withValues(alpha: 0.12)
-                      : theme.colorScheme.error.withValues(alpha: 0.12),
+                      : theme.colorScheme.onSurfaceVariant
+                          .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      amb.isAvailable ? Icons.check_circle : Icons.cancel,
+                      amb.isOpen24Hours
+                          ? Icons.access_time_filled
+                          : Icons.schedule,
                       size: 13,
-                      color: amb.isAvailable
+                      color: amb.isOpen24Hours
                           ? const Color(0xFF00897B)
-                          : theme.colorScheme.error,
+                          : theme.colorScheme.onSurfaceVariant,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      amb.isAvailable ? 'Available' : 'Busy',
+                      amb.isOpen24Hours ? '24/7' : 'Daytime hours',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
-                        color: amb.isAvailable
+                        color: amb.isOpen24Hours
                             ? const Color(0xFF00897B)
-                            : theme.colorScheme.error,
+                            : theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ],
