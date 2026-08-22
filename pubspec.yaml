@@ -1,5 +1,5 @@
 name: medalert
-description: "A new Flutter project."
+description: "MedAlert -- find medicine stock nearby and reach emergency services fast."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -66,6 +66,31 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# Launcher icons. The source PNGs are not hand-drawn: they are rendered from
+# the app's own MedAlertMark painter by tool/generate_app_icon.dart, so the
+# icon cannot drift away from the logo on the splash and login screens.
+#
+#   flutter test tool/generate_app_icon.dart   # refresh the source PNGs
+#   dart run flutter_launcher_icons            # regenerate platform icons
+flutter_launcher_icons:
+  image_path: "assets/icon/medalert_icon.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  # Android 8+ masks the foreground to whatever shape the launcher uses, so it
+  # gets its own render with the mark drawn smaller to survive the crop.
+  adaptive_icon_background: "#0B4F8A"
+  adaptive_icon_foreground: "assets/icon/medalert_icon_foreground.png"
+  web:
+    generate: true
+    image_path: "assets/icon/medalert_icon.png"
+    background_color: "#0B4F8A"
+    theme_color: "#0B4F8A"
+  windows:
+    generate: true
+    image_path: "assets/icon/medalert_icon.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
