@@ -34,7 +34,7 @@ class ServerConfig {
   ///   flutter build apk --dart-define=MEDALERT_HOST=10.0.0.5:8000
   static const String _compiledDefault = String.fromEnvironment(
     'MEDALERT_HOST',
-    defaultValue: '192.168.1.64:8000',
+    defaultValue: '192.168.1.71:8000',
   );
 
   /// Cached so the URL getters can stay synchronous -- they are called on
