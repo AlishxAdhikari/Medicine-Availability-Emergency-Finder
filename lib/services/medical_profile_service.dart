@@ -7,7 +7,10 @@ import 'api_client.dart';
 ///
 /// Backend stores identity + medical fields. Allergies / medications are
 /// free-text on the server and lists in the UI; this service converts.
-/// Only the *first* emergency contact round-trips to the server.
+/// Emergency contacts round-trip as a list (`emergency_contacts`). The
+/// server also returns the legacy `emergency_contact_name`/`_phone` pair
+/// as a mirror of the first entry; this service ignores it on read and
+/// never writes it, since the list is now the single source of truth.
 class MedicalProfileService {
   MedicalProfileService._internal();
   static final MedicalProfileService instance = MedicalProfileService._internal();
@@ -67,8 +70,6 @@ class MedicalProfileService {
     final weightKg = json['weight_kg'];
     final allergiesText = (json['allergies'] as String? ?? '').trim();
     final medsText = (json['current_medications'] as String? ?? '').trim();
-    final contactName = (json['emergency_contact_name'] as String? ?? '').trim();
-    final contactPhone = (json['emergency_contact_phone'] as String? ?? '').trim();
     final phone = (json['phone_number'] as String? ?? '').trim();
 
     final fullName = (json['full_name'] as String? ?? '').trim();
@@ -76,33 +77,16 @@ class MedicalProfileService {
     final gender = (json['gender'] as String? ?? '').trim();
     final address = (json['address'] as String? ?? '').trim();
 
-    // Backend stores a single emergency contact (name + phone). Relationship
-    // is UI-only and is kept from the local list when present.
-    final mergedContacts = List<EmergencyContact>.from(base.emergencyContacts);
-    if (json.containsKey('emergency_contact_name')) {
-      if (contactName.isNotEmpty) {
-        final primary = EmergencyContact(
-          name: contactName,
-          relationship: mergedContacts.isNotEmpty
-              ? mergedContacts.first.relationship
-              : 'Contact',
-          phoneNumber: contactPhone,
-          initials: contactName
-              .substring(0, contactName.length > 2 ? 2 : contactName.length)
-              .toUpperCase(),
-        );
-        if (mergedContacts.isEmpty) {
-          mergedContacts.add(primary);
-        } else {
-          mergedContacts[0] = primary;
-        }
-      } else if (mergedContacts.isNotEmpty &&
-          contactName.isEmpty &&
-          contactPhone.isEmpty) {
-        // Server cleared the contact — drop the primary only.
-        mergedContacts.removeAt(0);
-      }
-    }
+    // The server's list replaces the local one outright when present. It is
+    // authoritative: merging index-by-index (what this used to do for the
+    // single legacy contact) reattached the wrong relationship to the wrong
+    // person as soon as one was deleted from the middle of the list.
+    final mergedContacts = json.containsKey('emergency_contacts')
+        ? [
+            for (final raw in (json['emergency_contacts'] as List? ?? []))
+              _contactFromApi(Map<String, dynamic>.from(raw as Map)),
+          ]
+        : List<EmergencyContact>.from(base.emergencyContacts);
 
     return base.copyWith(
       fullName: fullName.isNotEmpty ? fullName : base.fullName,
@@ -127,17 +111,35 @@ class MedicalProfileService {
     );
   }
 
+  /// Sends every contact, in order. An empty list is sent as an empty list
+  /// rather than omitted, so deleting your last contact actually clears it
+  /// server-side -- the serializer treats "absent" as "leave alone".
+  EmergencyContact _contactFromApi(Map<String, dynamic> json) {
+    final name = (json['name'] as String? ?? '').trim();
+    return EmergencyContact(
+      name: name,
+      // Relationship is optional server-side; the cards read better with a
+      // neutral word than with an empty line under the name.
+      relationship: (json['relationship'] as String? ?? '').trim().isEmpty
+          ? 'Contact'
+          : (json['relationship'] as String).trim(),
+      phoneNumber: (json['phone_number'] as String? ?? '').trim(),
+      initials: name.isEmpty
+          ? null
+          : name.substring(0, name.length > 2 ? 2 : name.length).toUpperCase(),
+    );
+  }
+
   Map<String, dynamic> _toApiContact(List<EmergencyContact> contacts) {
-    if (contacts.isEmpty) {
-      return {
-        'emergency_contact_name': '',
-        'emergency_contact_phone': '',
-      };
-    }
-    final primary = contacts.first;
     return {
-      'emergency_contact_name': primary.name,
-      'emergency_contact_phone': primary.phoneNumber,
+      'emergency_contacts': [
+        for (final contact in contacts)
+          {
+            'name': contact.name,
+            'relationship': contact.relationship,
+            'phone_number': contact.phoneNumber,
+          },
+      ],
     };
   }
 
