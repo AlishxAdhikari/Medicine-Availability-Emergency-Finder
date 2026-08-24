@@ -491,44 +491,6 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 16),
-
-                          // Language Selector Toggle
-                          ValueListenableBuilder<String>(
-                            valueListenable: AppStateManager.instance.languageNotifier,
-                            builder: (context, lang, _) {
-                              return Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'Preferred Language',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  SegmentedButton<String>(
-                                    segments: const <ButtonSegment<String>>[
-                                      ButtonSegment<String>(
-                                          value: 'en', label: Text('EN')),
-                                      ButtonSegment<String>(
-                                          value: 'ne', label: Text('NEP')),
-                                    ],
-                                    selected: <String>{lang},
-                                    onSelectionChanged: (Set<String> selection) {
-                                      AppStateManager.instance.toggleLanguage();
-                                    },
-                                    style: SegmentedButton.styleFrom(
-                                      selectedBackgroundColor: isDark
-                                          ? const Color(0xFFAAC7FF)
-                                          : theme.colorScheme.primary,
-                                      selectedForegroundColor:
-                                          isDark ? Colors.black : Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
                           const SizedBox(height: 24),
 
                           // Sign Up Button
