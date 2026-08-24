@@ -72,6 +72,29 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
     return buffer.toString();
   }
 
+  /// The rectangle iPad anchors the share popover to: the QR code itself, in
+  /// global coordinates, so the sheet points at the thing being shared.
+  ///
+  /// Falls back to the centre of the screen when the boundary has gone (a
+  /// rebuild mid-share), and to a 1x1 rect at the origin when even that is
+  /// unavailable -- an arbitrary but valid anchor beats throwing, because on
+  /// iPhone and Android the value is ignored entirely.
+  Rect _shareOrigin() {
+    final box = _qrBoundaryKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box != null && box.hasSize) {
+      return box.localToGlobal(Offset.zero) & box.size;
+    }
+    final size = MediaQuery.maybeOf(context)?.size;
+    if (size != null) {
+      return Rect.fromCenter(
+        center: Offset(size.width / 2, size.height / 2),
+        width: 1,
+        height: 1,
+      );
+    }
+    return const Rect.fromLTWH(0, 0, 1, 1);
+  }
+
   Future<void> _downloadQrCode(UserProfile profile) async {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
@@ -100,11 +123,20 @@ class _MedicalIdScreenState extends State<MedicalIdScreen> {
       await Share.shareXFiles(
         [xFile],
         text: 'My MedAlert emergency medical ID',
+        // Required on iPad, where the share sheet is a popover that UIKit
+        // anchors to a rectangle instead of sliding up from the bottom.
+        // Omitting it throws PlatformException(sharePositionOrigin), which
+        // this screen then reported as "could not generate QR code" -- the
+        // image was fine, only the sheet failed to open.
+        sharePositionOrigin: _shareOrigin(),
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not generate QR code: $e')),
+          // The QR is rendered and encoded before we get here, so a failure
+          // at this point is the share sheet, not the code itself. Saying
+          // "could not generate" sent us looking in the wrong place.
+          SnackBar(content: Text('Could not share the QR code: $e')),
         );
       }
     } finally {
