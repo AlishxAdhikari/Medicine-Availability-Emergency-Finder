@@ -69,7 +69,7 @@
             <data android:scheme="https"/>
         </intent>
         <!-- The emergency-contact alert composes an SMS. Like DIAL above it
-             only opens the composer -- SEND_SMS is deliberately not
+             only opens the composer - SEND_SMS is deliberately not
              requested, so the message goes out when the user presses send. -->
         <intent>
             <action android:name="android.intent.action.VIEW"/>
