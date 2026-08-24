@@ -383,182 +383,12 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen>
     }).toList();
   }
 
-  Future<PharmacyCustomer?> _showCustomerForm({PharmacyCustomer? existing}) async {
-    final nameController =
-        TextEditingController(text: existing?.name ?? '');
-    final phoneController =
-        TextEditingController(text: existing?.phone ?? '');
-    final membershipIdController =
-        TextEditingController(text: existing?.membershipId ?? '');
-    final notesController =
-        TextEditingController(text: existing?.notes ?? '');
-    String membership = existing?.membership ?? 'NONE';
-    // Unique key per dialog open — avoids Duplicate GlobalKeys
-    final formKey = GlobalKey<FormState>(debugLabel: 'customer_form_${existing?.id ?? 'new'}');
-
-    try {
-      final result = await showDialog<PharmacyCustomer>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) {
-          return StatefulBuilder(
-            builder: (ctx, setDialogState) {
-              return AlertDialog(
-                title: Text(existing == null ? 'New Customer' : 'Edit Customer'),
-                content: SizedBox(
-                  width: 360,
-                  child: SingleChildScrollView(
-                    child: Form(
-                      key: formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextFormField(
-                            controller: nameController,
-                            autofocus: true,
-                            textCapitalization: TextCapitalization.words,
-                            decoration: const InputDecoration(
-                              labelText: 'Customer Name *',
-                              prefixIcon: Icon(Icons.person_outline, size: 20),
-                              isDense: true,
-                            ),
-                            validator: (v) {
-                              if (v == null || v.trim().isEmpty) {
-                                return 'Name is required';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: phoneController,
-                            keyboardType: TextInputType.phone,
-                            decoration: const InputDecoration(
-                              labelText: 'Phone Number *',
-                              prefixIcon: Icon(Icons.phone_outlined, size: 20),
-                              hintText: '98XXXXXXXX',
-                              isDense: true,
-                            ),
-                            validator: (v) {
-                              final text = (v ?? '').trim();
-                              if (text.isEmpty) return 'Phone is required';
-                              if (text.length < 10) {
-                                return 'Enter a valid phone number';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 10),
-                          DropdownButtonFormField<String>(
-                            // ignore: deprecated_member_use
-                            value: membership,
-                            decoration: const InputDecoration(
-                              labelText: 'Membership',
-                              prefixIcon: Icon(Icons.card_membership, size: 20),
-                              isDense: true,
-                            ),
-                            items: const [
-                              DropdownMenuItem(
-                                  value: 'NONE', child: Text('None')),
-                              DropdownMenuItem(
-                                  value: 'SILVER', child: Text('Silver')),
-                              DropdownMenuItem(
-                                  value: 'GOLD', child: Text('Gold')),
-                              DropdownMenuItem(
-                                  value: 'PLATINUM', child: Text('Platinum')),
-                            ],
-                            onChanged: (v) {
-                              if (v != null) {
-                                setDialogState(() => membership = v);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: membershipIdController,
-                            decoration: const InputDecoration(
-                              labelText: 'Membership ID (optional)',
-                              prefixIcon: Icon(Icons.badge_outlined, size: 20),
-                              isDense: true,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: notesController,
-                            maxLines: 2,
-                            decoration: const InputDecoration(
-                              labelText: 'Notes (optional)',
-                              prefixIcon: Icon(Icons.notes, size: 20),
-                              isDense: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancel'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () async {
-                      if (!(formKey.currentState?.validate() ?? false)) return;
-                      final name = nameController.text.trim();
-                      final phone = phoneController.text.trim();
-                      final mid = membershipIdController.text.trim();
-                      final notes = notesController.text.trim();
-                      try {
-                        PharmacyCustomer saved;
-                        if (existing?.id != null) {
-                          saved = await OwnerCustomerService.instance
-                              .updateCustomer(
-                            existing!.id!,
-                            name: name,
-                            phone: phone,
-                            membership: membership,
-                            membershipId: mid,
-                            notes: notes,
-                          );
-                        } else {
-                          saved = await OwnerCustomerService.instance
-                              .createCustomer(
-                            name: name,
-                            phone: phone,
-                            membership: membership,
-                            membershipId: mid,
-                            notes: notes,
-                          );
-                        }
-                        if (ctx.mounted) Navigator.pop(ctx, saved);
-                      } catch (e) {
-                        if (!ctx.mounted) return;
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(
-                            content: Text(e is ApiException
-                                ? e.message
-                                : 'Could not save customer'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    },
-                    child: Text(existing == null ? 'Create' : 'Save'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
-      return result;
-    } finally {
-      nameController.dispose();
-      phoneController.dispose();
-      membershipIdController.dispose();
-      notesController.dispose();
-    }
+  Future<PharmacyCustomer?> _showCustomerForm({PharmacyCustomer? existing}) {
+    return showDialog<PharmacyCustomer>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _CustomerFormDialog(existing: existing),
+    );
   }
 
   Future<void> _createOrEditCustomer({PharmacyCustomer? existing}) async {
@@ -4527,4 +4357,202 @@ class _DonutChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DonutChartPainter oldDelegate) =>
       oldDelegate.values != values || oldDelegate.colors != colors;
+}
+
+
+/// The New / Edit Customer dialog.
+///
+/// A StatefulWidget rather than a StatefulBuilder inside `_showCustomerForm`
+/// so the controllers are disposed when this dialog actually leaves the tree.
+/// `showDialog`'s future completes the moment `Navigator.pop` runs, but the
+/// fields stay mounted for the exit animation -- and on a phone the keyboard
+/// dismissing rebuilds them inside that window. Disposing in a `finally` right
+/// after the await tore the controllers out from under live text fields.
+class _CustomerFormDialog extends StatefulWidget {
+  const _CustomerFormDialog({this.existing});
+
+  final PharmacyCustomer? existing;
+
+  @override
+  State<_CustomerFormDialog> createState() => _CustomerFormDialogState();
+}
+
+class _CustomerFormDialogState extends State<_CustomerFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _membershipIdController;
+  late final TextEditingController _notesController;
+  late String _membership;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    _nameController = TextEditingController(text: existing?.name ?? '');
+    _phoneController = TextEditingController(text: existing?.phone ?? '');
+    _membershipIdController =
+        TextEditingController(text: existing?.membershipId ?? '');
+    _notesController = TextEditingController(text: existing?.notes ?? '');
+    _membership = existing?.membership ?? 'NONE';
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _membershipIdController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext ctx) {
+    final existing = widget.existing;
+            return AlertDialog(
+          title: Text(existing == null ? 'New Customer' : 'Edit Customer'),
+          content: SizedBox(
+            width: 360,
+            child: SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: _nameController,
+                      autofocus: true,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Customer Name *',
+                        prefixIcon: Icon(Icons.person_outline, size: 20),
+                        isDense: true,
+                      ),
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) {
+                          return 'Name is required';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number *',
+                        prefixIcon: Icon(Icons.phone_outlined, size: 20),
+                        hintText: '98XXXXXXXX',
+                        isDense: true,
+                      ),
+                      validator: (v) {
+                        final text = (v ?? '').trim();
+                        if (text.isEmpty) return 'Phone is required';
+                        if (text.length < 10) {
+                          return 'Enter a valid phone number';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      // ignore: deprecated_member_use
+                      value: _membership,
+                      decoration: const InputDecoration(
+                        labelText: 'Membership',
+                        prefixIcon: Icon(Icons.card_membership, size: 20),
+                        isDense: true,
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'NONE', child: Text('None')),
+                        DropdownMenuItem(
+                            value: 'SILVER', child: Text('Silver')),
+                        DropdownMenuItem(
+                            value: 'GOLD', child: Text('Gold')),
+                        DropdownMenuItem(
+                            value: 'PLATINUM', child: Text('Platinum')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) {
+                          setState(() => _membership = v);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _membershipIdController,
+                      decoration: const InputDecoration(
+                        labelText: 'Membership ID (optional)',
+                        prefixIcon: Icon(Icons.badge_outlined, size: 20),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _notesController,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes (optional)',
+                        prefixIcon: Icon(Icons.notes, size: 20),
+                        isDense: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (!(_formKey.currentState?.validate() ?? false)) return;
+                final name = _nameController.text.trim();
+                final phone = _phoneController.text.trim();
+                final mid = _membershipIdController.text.trim();
+                final notes = _notesController.text.trim();
+                try {
+                  PharmacyCustomer saved;
+                  if (existing?.id != null) {
+                    saved = await OwnerCustomerService.instance
+                        .updateCustomer(
+                      existing!.id!,
+                      name: name,
+                      phone: phone,
+                      membership: _membership,
+                      membershipId: mid,
+                      notes: notes,
+                    );
+                  } else {
+                    saved = await OwnerCustomerService.instance
+                        .createCustomer(
+                      name: name,
+                      phone: phone,
+                      membership: _membership,
+                      membershipId: mid,
+                      notes: notes,
+                    );
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx, saved);
+                } catch (e) {
+                  if (!ctx.mounted) return;
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(
+                      content: Text(e is ApiException
+                          ? e.message
+                          : 'Could not save customer'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: Text(existing == null ? 'Create' : 'Save'),
+            ),
+          ],
+        );
+  }
 }
