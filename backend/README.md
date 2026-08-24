@@ -24,6 +24,8 @@ backend/
 ├── medalert_api/                # Django project package
 │   ├── settings.py              # Installed apps, JWT config, CORS, DRF, spectacular & channel layer
 │   ├── urls.py                  # Root URLconf — mounts each app under /api/v1/
+│   ├── views.py                 # Unauthenticated /api/v1/health/ check
+│   ├── tests.py                 # Health-check tests
 │   ├── wsgi.py
 │   └── asgi.py                  # ProtocolTypeRouter: HTTP → Django, WebSocket → sync consumers
 │
@@ -52,6 +54,8 @@ backend/
 │   ├── serializers.py
 │   ├── views.py                 # BloodBankViewSet, AmbulanceViewSet
 │   ├── filters.py
+│   ├── management/commands/
+│   │   └── seed_emergency.py    # Sample blood banks & ambulance providers
 │   ├── urls.py
 │   └── admin.py
 │
@@ -88,6 +92,8 @@ python manage.py seed_emergency    # optional, populates sample ambulances/blood
 python manage.py runserver
 ```
 
+`DEBUG` is `False` unless `.env` says otherwise, and with it off the server refuses to start without a real `SECRET_KEY` — see [Security Defaults](#security-defaults). Keep `DEBUG=True` locally.
+
 For emulator and desktop work the defaults are enough: `ALLOWED_HOSTS` covers `127.0.0.1`, `localhost`, and `10.0.2.2` (the Android emulator's alias for the host machine).
 
 ### Running against physical phones
@@ -110,13 +116,15 @@ Note that this address changes whenever the router assigns a different lease, so
 
 ## Environment Variables
 
-Defined in `backend/.env.example` and read via `python-decouple` / `dj-database-url`:
+Defined in `backend/.env.example` and read via `python-decouple`:
 
 ```
 SECRET_KEY=your_secure_key_here
-DEBUG=True
+DEBUG=True                # Defaults to False when unset
 ALLOWED_HOSTS=            # Comma-separated; must include your LAN IP for device testing
 CORS_ALLOWED_ORIGINS=     # Comma-separated allowed origins, e.g. http://localhost:3000 (only used when DEBUG=False)
+CSRF_TRUSTED_ORIGINS=     # Comma-separated origins with scheme, e.g. https://medalert.example.com
+HTTPS_ONLY=False          # Turn on only once the deployment terminates TLS
 DATABASE_NAME=medalert_api
 DATABASE_USER=postgres
 DATABASE_PASSWORD=your_db_password
@@ -125,6 +133,23 @@ DATABASE_PORT=5432
 ```
 
 While `DEBUG=True`, CORS is wide open (`CORS_ALLOW_ALL_ORIGINS = True`) to simplify local development against the Flutter app on any platform. Set `DEBUG=False` and populate `CORS_ALLOWED_ORIGINS` for anything resembling a production deployment.
+
+## Security Defaults
+
+`settings.py` fails closed rather than open, so a forgotten variable produces a loud startup error instead of a quietly insecure server:
+
+- **`DEBUG` defaults to `False`.** Local development must opt in via `.env`; forgetting the variable on a server cannot expose stack traces and settings.
+- **`SECRET_KEY` is required when `DEBUG=False`.** The development fallback is a key published in this repository — anyone could mint JWTs with it — so a deployment without its own key raises `ImproperlyConfigured` at startup. Generate one with:
+  ```bash
+  python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+  ```
+- **DRF's default permission is `IsAuthenticated`.** A view added without its own `permission_classes` fails closed. The genuinely public endpoints — pharmacy/medicine lookup, blood banks, ambulances, register/login, the health check, and the shared medical-ID link — each declare `AllowAny` explicitly.
+- **Secure cookies.** `SESSION_COOKIE_SECURE` and `CSRF_COOKIE_SECURE` follow `not DEBUG`. The app authenticates with a Bearer token, but the Django admin uses cookies.
+- **`HTTPS_ONLY`** is its own switch rather than `not DEBUG`, because the test suite runs with `DEBUG` off and `SECURE_SSL_REDIRECT` would turn every test request into a 301. Enabling it turns on the https redirect, the proxy SSL header, and one-year HSTS with subdomains and preload.
+
+## Health Check
+
+`GET /api/v1/health/` is unauthenticated and runs a `SELECT 1` before answering, so an unreachable database reports `503` with `{"status": "error"}` instead of a misleading `200`. It is meant for an external uptime monitor. (The app's *Test connection* button uses `/ambulances/districts/` instead — an endpoint that needs neither a token nor query parameters, so a 200 proves host, port, firewall and `ALLOWED_HOSTS` in one call.)
 
 ## Apps & Responsibilities
 
@@ -138,6 +163,12 @@ While `DEBUG=True`, CORS is wide open (`CORS_ALLOW_ALL_ORIGINS = True`) to simpl
 ## API Reference
 
 Base path: `/api/v1/`. Interactive docs: `/api/v1/docs/` (Swagger UI), raw schema at `/api/v1/schema/`.
+
+### Health (`medalert_api`)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health/` | Unauthenticated liveness/readiness probe; runs `SELECT 1` and reports `503` if the database is unreachable |
 
 ### Authentication (`core`)
 
@@ -219,7 +250,7 @@ The `sync` app is built and working end to end, from POS ingestion through to a 
 ## Testing
 
 ```bash
-python manage.py test          # 84 tests
+python manage.py test
 ```
 
 The `sync` suite covers the consumer (group delivery, cross-pharmacy isolation, and rejection of absent/garbage/expired/deleted-user/deactivated-user tokens), the signal receiver (threshold boundaries, payload shape, rollback safety), and the ingestion endpoint (auth failures, unknown medicines, concurrency).
@@ -230,7 +261,7 @@ The `sync` suite covers the consumer (group delivery, cross-pharmacy isolation, 
 
 - [x] Real-time pharmacy stock synchronization via Django Channels (`sync/` app) — **done**
 - [ ] Swap the in-memory channel layer for Redis (`channels-redis`) so alerts survive multiple workers
-- - [x] PostgreSQL for production — **done**
+- [x] PostgreSQL for production — **done**
 - [ ] PostGIS extension for database-side proximity queries at larger scale (still using the Python haversine fallback described above)
 - [ ] Push notifications for emergency/stock alerts
 - [ ] Real-time ambulance dispatch status — availability is currently approximated by the `is_24_hour` boolean, not a live status field (see the placeholder note in `lib/services/emergency_service.dart`)

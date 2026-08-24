@@ -54,3 +54,4 @@ app.*.map.json
 # WAL sidecars (journal_mode=WAL, see medalert_api/settings.py)
 *.sqlite3-wal
 *.sqlite3-shm
+docs
