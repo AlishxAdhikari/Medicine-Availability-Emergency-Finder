@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
-from .models import MedicalProfile
+from .models import EmergencyContact, MedicalProfile
 
 
 class LoginIdentifierSerializer(serializers.Serializer):
@@ -125,6 +125,20 @@ class UserSerializer(serializers.ModelSerializer):
         return {'id': owner_link.pharmacy_id, 'name': owner_link.pharmacy.name}
 
 
+class EmergencyContactSerializer(serializers.ModelSerializer):
+    """One row of the emergency contact list.
+
+    `position` is not exposed: order is whatever order the client sent, and
+    letting the client also set an explicit position would give two sources of
+    truth for the same thing.
+    """
+
+    class Meta:
+        model = EmergencyContact
+        fields = ('id', 'name', 'relationship', 'phone_number')
+        read_only_fields = ('id',)
+
+
 class MedicalProfileSerializer(serializers.ModelSerializer):
     """Full profile, for the logged-in owner only (GET/PUT /medical-id/).
 
@@ -134,6 +148,8 @@ class MedicalProfileSerializer(serializers.ModelSerializer):
     QR-code / share link.
     """
 
+    emergency_contacts = EmergencyContactSerializer(many=True, required=False)
+
     class Meta:
         model = MedicalProfile
         fields = (
@@ -141,10 +157,53 @@ class MedicalProfileSerializer(serializers.ModelSerializer):
             'full_name', 'date_of_birth', 'gender', 'address',
             'blood_group', 'height_cm', 'weight_kg', 'allergies',
             'chronic_conditions', 'current_medications',
+            'emergency_contacts',
             'emergency_contact_name', 'emergency_contact_phone',
             'phone_number', 'share_token', 'updated_at',
         )
-        read_only_fields = ('id', 'share_token', 'updated_at')
+        # The legacy pair is a mirror of the first entry in
+        # emergency_contacts, maintained in update(). Accepting writes to both
+        # would let a client set them to contradict each other.
+        read_only_fields = (
+            'id', 'share_token', 'updated_at',
+            'emergency_contact_name', 'emergency_contact_phone',
+        )
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        # `None` means "not sent" -- a PATCH that only changes blood group
+        # must leave the contacts alone. An explicit empty list still clears
+        # them, which is how the editor deletes the last contact.
+        contacts = validated_data.pop('emergency_contacts', None)
+        profile = super().update(instance, validated_data)
+
+        if contacts is not None:
+            # Replace wholesale rather than diffing: the client always sends
+            # the complete list, and matching up edits by index would silently
+            # rewrite the wrong person's number when one is deleted from the
+            # middle.
+            profile.emergency_contacts.all().delete()
+            EmergencyContact.objects.bulk_create([
+                EmergencyContact(
+                    profile=profile,
+                    name=contact.get('name', ''),
+                    relationship=contact.get('relationship', ''),
+                    phone_number=contact.get('phone_number', ''),
+                    position=index,
+                )
+                for index, contact in enumerate(contacts)
+            ])
+
+            primary = contacts[0] if contacts else None
+            profile.emergency_contact_name = primary.get('name', '') if primary else ''
+            profile.emergency_contact_phone = (
+                primary.get('phone_number', '') if primary else ''
+            )
+            profile.save(
+                update_fields=['emergency_contact_name', 'emergency_contact_phone']
+            )
+
+        return profile
 
     def validate_phone_number(self, value):
         """Allow clearing the phone, and allow keeping your own number.
@@ -168,12 +227,18 @@ class SharedProfileSerializer(serializers.ModelSerializer):
 
     Deliberately excludes anything that identifies the person: no user,
     username, email, or phone_number. Only medically-relevant fields.
+
+    Emergency contacts are included on purpose: reaching the patient's family
+    is the point of handing a responder this link.
     """
+
+    emergency_contacts = EmergencyContactSerializer(many=True, read_only=True)
 
     class Meta:
         model = MedicalProfile
         fields = (
             'blood_group', 'height_cm', 'weight_kg', 'allergies',
             'chronic_conditions', 'current_medications',
+            'emergency_contacts',
             'emergency_contact_name', 'emergency_contact_phone',
         )

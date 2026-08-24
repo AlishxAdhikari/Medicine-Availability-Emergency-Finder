@@ -116,3 +116,111 @@ class CurrentUserTests(TestCase):
         response = self.client.get('/api/v1/auth/me/')
 
         self.assertEqual(response.data['username'], 'someone-else')
+
+
+class EmergencyContactTests(TestCase):
+    """Multiple emergency contacts have to survive the round trip.
+
+    The Flutter editor lets you add any number of them and "Alert my
+    contacts" addresses the SMS to all of them, but the profile used to hold
+    a single name/phone pair -- so everyone after the first was silently
+    dropped on save and gone after the next cold start. The symptom was the
+    text message only reaching one person, which is the worst possible place
+    for this to fail.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username='patient', email='p@x.com', password='pw123456!',
+        )
+        self.client.force_authenticate(self.user)
+
+    def test_saves_and_returns_every_contact(self):
+        response = self.client.patch('/api/v1/auth/medical-id/', {
+            'emergency_contacts': [
+                {'name': 'Aama', 'relationship': 'Mother', 'phone_number': '9841111111'},
+                {'name': 'Buwa', 'relationship': 'Father', 'phone_number': '9842222222'},
+                {'name': 'Didi', 'relationship': 'Sister', 'phone_number': '9843333333'},
+            ],
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        contacts = response.data['emergency_contacts']
+        self.assertEqual(len(contacts), 3)
+        self.assertEqual(
+            [c['phone_number'] for c in contacts],
+            ['9841111111', '9842222222', '9843333333'],
+        )
+
+    def test_contacts_survive_a_refetch(self):
+        self.client.patch('/api/v1/auth/medical-id/', {
+            'emergency_contacts': [
+                {'name': 'Aama', 'relationship': 'Mother', 'phone_number': '9841111111'},
+                {'name': 'Buwa', 'relationship': 'Father', 'phone_number': '9842222222'},
+            ],
+        }, format='json')
+
+        response = self.client.get('/api/v1/auth/medical-id/')
+
+        self.assertEqual(len(response.data['emergency_contacts']), 2)
+
+    def test_legacy_single_contact_fields_mirror_the_first(self):
+        """The responder share endpoint and older clients still read these."""
+        self.client.patch('/api/v1/auth/medical-id/', {
+            'emergency_contacts': [
+                {'name': 'Aama', 'relationship': 'Mother', 'phone_number': '9841111111'},
+                {'name': 'Buwa', 'relationship': 'Father', 'phone_number': '9842222222'},
+            ],
+        }, format='json')
+
+        response = self.client.get('/api/v1/auth/medical-id/')
+
+        self.assertEqual(response.data['emergency_contact_name'], 'Aama')
+        self.assertEqual(response.data['emergency_contact_phone'], '9841111111')
+
+    def test_replacing_contacts_removes_the_old_ones(self):
+        self.client.patch('/api/v1/auth/medical-id/', {
+            'emergency_contacts': [
+                {'name': 'Aama', 'relationship': 'Mother', 'phone_number': '9841111111'},
+                {'name': 'Buwa', 'relationship': 'Father', 'phone_number': '9842222222'},
+            ],
+        }, format='json')
+        self.client.patch('/api/v1/auth/medical-id/', {
+            'emergency_contacts': [
+                {'name': 'Didi', 'relationship': 'Sister', 'phone_number': '9843333333'},
+            ],
+        }, format='json')
+
+        response = self.client.get('/api/v1/auth/medical-id/')
+
+        self.assertEqual(len(response.data['emergency_contacts']), 1)
+        self.assertEqual(response.data['emergency_contact_name'], 'Didi')
+
+    def test_omitting_contacts_leaves_them_alone(self):
+        """A PATCH that only touches blood group must not wipe the contacts."""
+        self.client.patch('/api/v1/auth/medical-id/', {
+            'emergency_contacts': [
+                {'name': 'Aama', 'relationship': 'Mother', 'phone_number': '9841111111'},
+            ],
+        }, format='json')
+
+        self.client.patch('/api/v1/auth/medical-id/', {'blood_group': 'O+'}, format='json')
+        response = self.client.get('/api/v1/auth/medical-id/')
+
+        self.assertEqual(len(response.data['emergency_contacts']), 1)
+
+    def test_shared_responder_view_lists_every_contact(self):
+        self.client.patch('/api/v1/auth/medical-id/', {
+            'emergency_contacts': [
+                {'name': 'Aama', 'relationship': 'Mother', 'phone_number': '9841111111'},
+                {'name': 'Buwa', 'relationship': 'Father', 'phone_number': '9842222222'},
+            ],
+        }, format='json')
+        token = self.user.medical_profile.share_token
+
+        anon = APIClient()
+        response = anon.get(f'/api/v1/auth/medical-id/share/{token}/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['emergency_contacts']), 2)
